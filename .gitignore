@@ -1,0 +1,10 @@
+# node modules
+**/node_modules/
+
+# Next.js y NestJS
+client/.next/
+server/dist/
+
+# Logs y env
+*.log
+.env

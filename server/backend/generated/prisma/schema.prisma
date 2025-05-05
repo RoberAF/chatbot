@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+
+  // Relación uno-a-muchos: un usuario puede tener muchas personalidades
+  personalities Personality[]
+
+  // Personalidad activa (una sola)
+  activePersonalityId Int?
+  activePersonality   Personality? @relation("ActivePersonality", fields: [activePersonalityId], references: [id])
+
+  // Otros modelos relacionados
+  refreshTokens RefreshToken[]
+  subscription  Subscription?
+}
+
+model Personality {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  traits    Json
+  createdAt DateTime @default(now())
+
+  // Relación “propietario” de la personalidad
+  user User @relation(fields: [userId], references: [id])
+
+  // Relación inversa para la personalidad seleccionada
+  selectedBy User[] @relation("ActivePersonality")
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  tokenHash String
+  userId    Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Subscription {
+  id        Int              @id @default(autoincrement())
+  userId    Int              @unique
+  tier      SubscriptionTier @default(FREE)
+  expiresAt DateTime?
+  stripeId  String?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+enum SubscriptionTier {
+  FREE
+  PREMIUM
+}

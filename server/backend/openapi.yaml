@@ -1,0 +1,177 @@
+openapi: 3.0.0
+info:
+  title: Chatbot IA API
+  version: 1.0.0
+  description: API para registro, autenticación, generación de personalidad, chat y estado de suscripción.
+servers:
+  - url: http://localhost:3000/api
+    description: Servidor local de desarrollo
+paths:
+  /auth/register:
+    post:
+      summary: Registro de un nuevo usuario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Usuario registrado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Datos inválidos
+  /auth/login:
+    post:
+      summary: Login de usuario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Autenticación exitosa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Credenciales inválidas
+  /users/{userId}/personality:
+    get:
+      summary: Obtener personalidad generada del usuario
+      parameters:
+        - in: path
+          name: userId
+          schema:
+            type: string
+          required: true
+          description: ID del usuario
+      responses:
+        '200':
+          description: Personalidad del usuario
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Personality'
+        '404':
+          description: Usuario o personalidad no encontrada
+  /chat/{sessionId}:
+    post:
+      summary: Enviar mensaje de chat y recibir respuesta
+      parameters:
+        - in: path
+          name: sessionId
+          schema:
+            type: string
+          required: true
+          description: ID de la sesión de chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: Respuesta del chatbot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        '404':
+          description: Sesión no encontrada
+  /subscription/status:
+    get:
+      summary: Obtener estado de suscripción del usuario autenticado
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Estado de suscripción
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionStatus'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    RegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+      required:
+        - email
+        - password
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required:
+        - email
+        - password
+    AuthResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+    Personality:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        traits:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+    ChatRequest:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+    ChatResponse:
+      type: object
+      properties:
+        reply:
+          type: string
+        sessionId:
+          type: string
+    SubscriptionStatus:
+      type: object
+      properties:
+        tier:
+          type: string
+          enum:
+            - free
+            - premium
+        expiresAt:
+          type: string
+          format: date-time
