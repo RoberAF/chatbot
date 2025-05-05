@@ -24,8 +24,10 @@ export default function ProfilePage() {
   const [name, setName] = useState('');
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateSuccess, setUpdateSuccess] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
+  const [editMode, setEditMode] = useState(false);
   
   // Perfil simulado
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -110,6 +112,7 @@ export default function ProfilePage() {
       }
       setUpdateSuccess(true);
       setUpdating(false);
+      setEditMode(false);
     }, 1000);
   };
 
@@ -349,8 +352,4 @@ export default function ProfilePage() {
       </div>
     </div>
   );
-}
-
-function setUpdateError(arg0: null) {
-  throw new Error('Function not implemented.');
 }
