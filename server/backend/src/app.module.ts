@@ -8,6 +8,7 @@ import { PersonalityModule } from './personality/personality.module';
 import { SubscriptionModule } from './subscription/subscription.module';
 import { ChatModule } from './chat/chat.module';
 import { MemoryModule } from './memory/memory.module';
+import { UserModule } from './user/user.module'; 
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { MemoryModule } from './memory/memory.module';
     SubscriptionModule,
     ChatModule,
     MemoryModule,
+    UserModule,  
     ConfigModule.forRoot({ isGlobal: true }),
   ],
   controllers: [AppController],

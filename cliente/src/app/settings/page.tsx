@@ -4,17 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 
-interface UserSettings {
-  id: number;
-  theme: 'light' | 'dark' | 'system';
-  notifications: boolean;
-  emailUpdates: boolean;
-  language: string;
-}
-
 export default function SettingsPage() {
   const router = useRouter();
-  const { accessToken, authFetch } = useAuth();
+  const { logout } = useAuth();
 
   // Estados de ajustes
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
@@ -28,46 +20,49 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  // Cargar ajustes del usuario
+  // Cargar ajustes simulados
   useEffect(() => {
-    if (!accessToken) {
+    // Verificar token en localStorage como respaldo
+    const storedToken = localStorage.getItem('accessToken');
+    
+    // Si no hay token, redirigir al login
+    if (!storedToken) {
+      console.log('No hay token, redirigiendo a login');
       router.push('/login');
       return;
     }
-
-    const fetchSettings = async () => {
+    
+    // Cargar configuración desde localStorage o usar valores por defecto
+    const loadSettings = () => {
       try {
-        const res = await authFetch('/users/me/settings');
-        if (!res.ok) {
-          // Si el endpoint no existe o hay error, usamos valores por defecto
-          // En producción deberías manejar este caso según tu API
-          console.log('No se pudieron cargar los ajustes, usando valores por defecto');
-          
-          // Intentar leer de localStorage
-          const storedTheme = localStorage.getItem('theme') as 'light' | 'dark' | 'system' || 'system';
-          setTheme(storedTheme);
-          
-          setLoading(false);
-          return;
-        }
-        
-        const data: UserSettings = await res.json();
-        setTheme(data.theme);
-        setNotifications(data.notifications);
-        setEmailUpdates(data.emailUpdates);
-        setLanguage(data.language);
-      } catch (err) {
-        console.error('Error fetching settings:', err);
-        // Usar valores por defecto
+        // Intentar cargar desde localStorage
         const storedTheme = localStorage.getItem('theme') as 'light' | 'dark' | 'system' || 'system';
         setTheme(storedTheme);
+        
+        // Para otros ajustes, podríamos cargarlos de localStorage también
+        const storedNotifications = localStorage.getItem('notifications');
+        setNotifications(storedNotifications === 'true');
+        
+        const storedEmailUpdates = localStorage.getItem('emailUpdates');
+        setEmailUpdates(storedEmailUpdates === 'true');
+        
+        const storedLanguage = localStorage.getItem('language') || 'es';
+        setLanguage(storedLanguage);
+        
+      } catch (err) {
+        console.error('Error al cargar configuración:', err);
+        // Usar valores por defecto
       } finally {
         setLoading(false);
       }
     };
-
-    fetchSettings();
-  }, [accessToken, authFetch, router]);
+    
+    loadSettings();
+    
+    // Aplicar tema actual
+    applyTheme(localStorage.getItem('theme') as 'light' | 'dark' | 'system' || 'system');
+    
+  }, [router]);
 
   // Guardar ajustes
   const handleSubmit = async (e: React.FormEvent) => {
@@ -76,36 +71,23 @@ export default function SettingsPage() {
     setError(null);
     setSuccess(false);
 
-    // Guardar tema en localStorage
-    localStorage.setItem('theme', theme);
-    
-    // En un caso real, también enviarías al backend
     try {
-      const res = await authFetch('/users/me/settings', {
-        method: 'PATCH',
-        body: JSON.stringify({
-          theme,
-          notifications,
-          emailUpdates,
-          language,
-        }),
-      });
+      // Guardar en localStorage (simulado)
+      localStorage.setItem('theme', theme);
+      localStorage.setItem('notifications', notifications.toString());
+      localStorage.setItem('emailUpdates', emailUpdates.toString());
+      localStorage.setItem('language', language);
       
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || 'Error al guardar ajustes');
-      }
+      // Aplicar tema
+      applyTheme(theme);
+      
+      // Simular petición al servidor
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       setSuccess(true);
-      
-      // Aplicar tema inmediatamente
-      applyTheme(theme);
-      
     } catch (err: any) {
-      setError(err.message);
-      
-      // Aún así aplicamos el tema en localStorage
-      applyTheme(theme);
+      setError('Error al guardar ajustes');
+      console.error('Error al guardar ajustes:', err);
     } finally {
       setSaving(false);
     }
@@ -153,6 +135,12 @@ export default function SettingsPage() {
           </p>
         </div>
 
+        {/* Mensaje informativo sobre el modo de emergencia */}
+        <div className="mb-8 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 text-yellow-700 dark:text-yellow-300 px-4 py-3 rounded-lg">
+          <p className="font-medium">Modo de emergencia activo</p>
+          <p className="text-sm mt-1">Estás viendo una versión simplificada de los ajustes porque el servidor no tiene implementado el endpoint /users/me</p>
+        </div>
+
         {/* Formulario de ajustes */}
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-md overflow-hidden">
           <form onSubmit={handleSubmit}>
@@ -186,40 +174,6 @@ export default function SettingsPage() {
                       className={`
                         flex items-center justify-center rounded-lg border p-3
                         ${theme === 'light'
-                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                          : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300'
-                        }
-                      `}
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                      </svg>
-                      Claro
-                    </button>
-                    
-                    <button
-                      type="button"
-                      onClick={() => handleThemeChange('dark')}
-                      className={`
-                        flex items-center justify-center rounded-lg border p-3
-                        ${theme === 'dark'
-                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                          : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300'
-                        }
-                      `}
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                      </svg>
-                      Oscuro
-                    </button>
-                    
-                    <button
-                      type="button"
-                      onClick={() => handleThemeChange('system')}
-                      className={`
-                        flex items-center justify-center rounded-lg border p-3
-                        ${theme === 'system'
                           ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
                           : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300'
                         }
@@ -398,4 +352,53 @@ export default function SettingsPage() {
       </div>
     </div>
   );
-}
+<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                      </svg>
+                      Claro
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={() => handleThemeChange('dark')}
+                      className={`
+                        flex items-center justify-center rounded-lg border p-3
+                        ${theme === 'dark'
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                          : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300'
+                        }
+                      `}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                      </svg>
+                      Oscuro
+                    </button>
+                      type="button"
+                      onClick={() => handleThemeChange('dark')}
+                      className={`
+                        flex items-center justify-center rounded-lg border p-3
+                        ${theme === 'dark'
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                          : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300'
+                        }
+                      `}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                      </svg>
+                      Oscuro
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={() => handleThemeChange('system')}
+                      className={`
+                        flex items-center justify-center rounded-lg border p-3
+                        ${theme === 'system'
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                          : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300'
+                        }
+                      `}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg"
