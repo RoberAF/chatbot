@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 
 type Personality = {
-  id: number;
+  id: string;
   traits: { name: string };
 };
 
@@ -32,7 +32,7 @@ export function Sidebar() {
   const { accessToken, loading, authFetch, logout } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
-  const activePid = Number(params.get('pid') || '');
+  const activePid = params.get('pid') || '';
 
   // Memoiza el userId para no parsear el JWT en cada render
   const userId = useMemo(() => {
@@ -42,6 +42,7 @@ export function Sidebar() {
 
   const [personalities, setPersonalities] = useState<Personality[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isLoadingPersonalities, setIsLoadingPersonalities] = useState(false);
 
   // Modificado para ir a la página de plantillas
   const newChat = () => {
@@ -52,26 +53,41 @@ export function Sidebar() {
     router.push('/subscription/plans');
   };
 
-  // Carga las personalidades del usuario
+  // Función para cargar personalidades, ahora memoizada con useCallback
+  const loadPersonalities = useCallback(async () => {
+    if (isLoadingPersonalities) return; // Evita múltiples llamadas mientras carga
+    
+    setIsLoadingPersonalities(true);
+    try {
+      const res = await authFetch(`/users/me/personalities`);
+      if (!res.ok) throw new Error('No se pudieron cargar las personalidades');
+      const data = await res.json();
+      setPersonalities(data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsLoadingPersonalities(false);
+    }
+  }, [authFetch, isLoadingPersonalities]);
+
+  // Carga las personalidades del usuario una sola vez
   useEffect(() => {
     if (!loading && !accessToken) {
       logout();
       return;
     }
+    
     if (loading || !accessToken || !userId) return;
+    
+    // Solo carga si no tenemos personalidades y no estamos ya cargando
+    if (personalities.length === 0 && !isLoadingPersonalities) {
+      loadPersonalities();
+    }
+  }, [loading, accessToken, userId, logout, personalities.length, isLoadingPersonalities, loadPersonalities]);
 
-    (async () => {
-      try {
-        const res = await authFetch(`/users/me/personalities`);
-        if (!res.ok) throw new Error('No se pudieron cargar las personalidades');
-        setPersonalities(await res.json());
-      } catch (e: any) {
-        setError(e.message);
-      }
-    })();
-  }, [loading, accessToken, authFetch, userId, logout]);
-
-  const selectPersonality = async (pid: number) => {
+  const selectPersonality = async (pid: string) => {
+    if (pid === activePid) return; // No hacer nada si ya está seleccionada
+    
     await authFetch(`/users/me/personalities/${pid}/select`, {
       method: 'POST',
     });
@@ -118,11 +134,19 @@ export function Sidebar() {
           {error && (
             <p className="text-red-500 text-sm px-3">{error}</p>
           )}
-          {!error && personalities.length === 0 && (
+          
+          {isLoadingPersonalities && (
+            <p className="text-sm text-slate-500 dark:text-slate-400 px-3">
+              Cargando personalidades...
+            </p>
+          )}
+          
+          {!isLoadingPersonalities && !error && personalities.length === 0 && (
             <p className="text-sm text-slate-500 dark:text-slate-400 px-3">
               No tienes alter egos aún.
             </p>
           )}
+          
           {personalities.map(p => {
             const isActive = p.id === activePid;
             return (

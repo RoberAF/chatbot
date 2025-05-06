@@ -36,6 +36,7 @@
     "nodemailer": "^6.10.1",
     "openai": "^4.95.1",
     "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
     "prisma": "^6.6.0",
     "reflect-metadata": "^0.2.2",

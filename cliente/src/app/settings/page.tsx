@@ -135,12 +135,6 @@ export default function SettingsPage() {
           </p>
         </div>
 
-        {/* Mensaje informativo sobre el modo de emergencia */}
-        <div className="mb-8 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 text-yellow-700 dark:text-yellow-300 px-4 py-3 rounded-lg">
-          <p className="font-medium">Modo de emergencia activo</p>
-          <p className="text-sm mt-1">Estás viendo una versión simplificada de los ajustes porque el servidor no tiene implementado el endpoint /users/me</p>
-        </div>
-
         {/* Formulario de ajustes */}
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-md overflow-hidden">
           <form onSubmit={handleSubmit}>

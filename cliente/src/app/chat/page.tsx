@@ -30,24 +30,41 @@ export default function ChatPage() {
   const [typing, setTyping] = useState(false);
   const [activePersonality, setActivePersonality] = useState<string | null>(null);
   const [creatingDefaultPersonality, setCreatingDefaultPersonality] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
   // 1) Protección de ruta: si ya cargó y no hay token, desloguea
   useEffect(() => {
-    if (!loading && !accessToken) {
-      logout();
+    if (!loading) {
+      setAuthChecked(true);
+      if (!accessToken && !isRedirecting) {
+        console.log('No hay token en ChatPage, redirigiendo a login');
+        setIsRedirecting(true);
+        
+        // Guardar la ruta actual para redirigir después del login
+        localStorage.setItem('auth_redirect_to', window.location.pathname + window.location.search);
+        
+        // Usar setTimeout para evitar bucles de redirección
+        setTimeout(() => {
+          logout();
+          router.push('/login');
+        }, 100);
+      }
     }
-  }, [loading, accessToken, logout]);
+  }, [loading, accessToken, logout, router, isRedirecting]);
 
   // 2) Obtener/crear personalidad activa si es necesario
   useEffect(() => {
-    if (loading || !accessToken || creatingDefaultPersonality) return;
+    if (loading || !accessToken || creatingDefaultPersonality || !authChecked || isRedirecting) return;
     
+    console.log('Intentando obtener/crear personalidad activa');
     const getOrCreateActivePersonality = async () => {
       try {
         // Si se proporciona un ID de personalidad en la URL, usamos ese
         if (pidParam) {
+          console.log(`Usando personalidad de URL: ${pidParam}`);
           // Marcarla como activa
           await authFetch(`/users/me/personalities/${pidParam}/select`, {
             method: 'POST',
@@ -57,36 +74,62 @@ export default function ChatPage() {
         }
         
         // Si no hay pid en la URL, intentamos obtener la personalidad activa del usuario
+        console.log('Obteniendo lista de personalidades');
         const res = await authFetch('/users/me/personalities');
+        if (!res.ok) {
+          console.error('Error al obtener personalidades:', await res.text());
+          throw new Error('Error al obtener personalidades');
+        }
+        
         const personalities = await res.json();
+        console.log(`Personalidades obtenidas: ${personalities.length}`);
         
         if (personalities && personalities.length > 0) {
           // Buscar si hay alguna ya marcada como activa (de un login anterior)
-          const user = await authFetch('/users/me').then(r => r.json());
+          console.log('Obteniendo información del usuario');
+          const userRes = await authFetch('/users/me');
+          if (!userRes.ok) {
+            console.error('Error al obtener usuario:', await userRes.text());
+            throw new Error('Error al obtener usuario');
+          }
+          
+          const user = await userRes.json();
           
           if (user.activePersonalityId) {
+            console.log(`Usuario ya tiene personalidad activa: ${user.activePersonalityId}`);
             setActivePersonality(user.activePersonalityId);
           } else {
             // Si no hay ninguna activa, seleccionamos la primera
-            await authFetch(`/users/me/personalities/${personalities[0].id}/select`, {
+            console.log(`Seleccionando primera personalidad: ${personalities[0].id}`);
+            const selectRes = await authFetch(`/users/me/personalities/${personalities[0].id}/select`, {
               method: 'POST',
             });
+            
+            if (!selectRes.ok) {
+              console.error('Error al seleccionar personalidad:', await selectRes.text());
+              throw new Error('Error al seleccionar personalidad');
+            }
+            
             setActivePersonality(personalities[0].id);
           }
         } else {
           // Si el usuario no tiene personalidades, creamos una por defecto
+          console.log('Creando personalidad por defecto');
           setCreatingDefaultPersonality(true);
           
-          // Endpoint para crear personalidad predeterminada (necesitas implementarlo)
+          // Endpoint para crear personalidad predeterminada
           const defaultRes = await authFetch('/users/me/personalities/default', {
             method: 'POST',
           });
           
-          if (defaultRes.ok) {
-            const newPersonality = await defaultRes.json();
-            setActivePersonality(newPersonality.id);
+          if (!defaultRes.ok) {
+            console.error('Error al crear personalidad por defecto:', await defaultRes.text());
+            throw new Error('Error al crear personalidad por defecto');
           }
           
+          const newPersonality = await defaultRes.json();
+          console.log(`Personalidad por defecto creada: ${newPersonality.id}`);
+          setActivePersonality(newPersonality.id);
           setCreatingDefaultPersonality(false);
         }
       } catch (error) {
@@ -96,29 +139,36 @@ export default function ChatPage() {
     };
 
     getOrCreateActivePersonality();
-  }, [loading, accessToken, pidParam, authFetch, creatingDefaultPersonality]);
+  }, [loading, accessToken, pidParam, authFetch, creatingDefaultPersonality, authChecked, isRedirecting]);
 
   // 3) Carga el historial cuando tengamos una personalidad activa
   useEffect(() => {
-    if (loading || !accessToken || !activePersonality) return;
+    if (loading || !accessToken || !activePersonality || !authChecked || isRedirecting) return;
 
+    console.log(`Cargando historial para personalidad: ${activePersonality}`);
     const loadChatHistory = async () => {
       try {
         const res = await authFetch(`/chat/history/${activePersonality}`);
-        if (!res.ok) throw new Error('No pude cargar historial');
+        if (!res.ok) {
+          console.error('Error al cargar historial:', await res.text());
+          throw new Error('No pude cargar historial');
+        }
+        
         const history: { sender: 'user' | 'bot'; content: string }[] = await res.json();
+        console.log(`Historial cargado: ${history.length} mensajes`);
         setMsgs(history.map(m => ({ from: m.sender, text: m.content })));
+        
         // Scroll al fondo tras render
         setTimeout(() => {
           containerRef.current?.scrollTo(0, containerRef.current.scrollHeight);
         }, 0);
       } catch (e) {
-        console.error(e);
+        console.error('Error al cargar historial:', e);
       }
     };
 
     loadChatHistory();
-  }, [loading, accessToken, activePersonality, authFetch]);
+  }, [loading, accessToken, activePersonality, authFetch, authChecked, isRedirecting]);
 
   // Envío del formulario con Enter
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -131,7 +181,7 @@ export default function ChatPage() {
   // 4) Lógica de envío: usuario → typing → bot con delay → scroll
   const sendMessage = async () => {
     const text = input.trim();
-    if (!text || !activePersonality) return;
+    if (!text || !activePersonality || !accessToken) return;
 
     // a) Añade mensaje del user
     setMsgs(prev => [...prev, { from: 'user', text }]);
@@ -139,17 +189,30 @@ export default function ChatPage() {
 
     try {
       // b) Asegura que esta personalidad está seleccionada
-      await authFetch(`/users/me/personalities/${activePersonality}/select`, {
+      console.log(`Seleccionando personalidad para envío: ${activePersonality}`);
+      const selectRes = await authFetch(`/users/me/personalities/${activePersonality}/select`, {
         method: 'POST',
       });
+      
+      if (!selectRes.ok) {
+        console.error('Error al seleccionar personalidad para mensaje:', await selectRes.text());
+        throw new Error('Error al seleccionar personalidad');
+      }
 
       // c) Llama al backend
+      console.log('Enviando mensaje al backend');
       const res = await authFetch('/chat/message', {
         method: 'POST',
         body: JSON.stringify({ message: text }),
       });
-      if (!res.ok) throw new Error('Error del servidor');
+      
+      if (!res.ok) {
+        console.error('Error al enviar mensaje:', await res.text());
+        throw new Error('Error del servidor');
+      }
+      
       const { reply } = await res.json();
+      console.log('Respuesta recibida del servidor');
 
       // d) Indicador "typing"
       setTyping(true);
@@ -159,18 +222,49 @@ export default function ChatPage() {
 
       // e) Añade respuesta del bot
       setMsgs(prev => [...prev, { from: 'bot', text: reply }]);
+      
       // f) Scroll al final
       setTimeout(() => {
         containerRef.current?.scrollTo(0, containerRef.current.scrollHeight);
       }, 0);
     } catch (e) {
-      console.error(e);
+      console.error('Error al procesar mensaje:', e);
       setTyping(false);
+      
+      // Si hay un error de autenticación, intentar redireccionar
+      if (e instanceof Error && e.message.includes('autenticación')) {
+        logout();
+        router.push('/login');
+      }
     }
   };
 
+  // Mostrar pantalla de carga mientras se está redirigiendo
+  if (isRedirecting) {
+    return (
+      <div className="flex h-screen items-center justify-center font-sans text-base bg-slate-200 dark:bg-slate-900">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-slate-700 dark:text-slate-300">Redirigiendo...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Mostrar pantalla de carga mientras se verifica la autenticación
+  if (loading || !authChecked) {
+    return (
+      <div className="flex h-screen items-center justify-center font-sans text-base bg-slate-200 dark:bg-slate-900">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-slate-700 dark:text-slate-300">Verificando sesión...</p>
+        </div>
+      </div>
+    );
+  }
+
   // Mostrar pantalla de carga mientras intentamos resolver las personalidades
-  if (loading || (!activePersonality && !creatingDefaultPersonality)) {
+  if (!activePersonality && !creatingDefaultPersonality) {
     return (
       <div className="flex h-screen items-center justify-center font-sans text-base bg-slate-200 dark:bg-slate-900">
         <div className="text-center">

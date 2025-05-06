@@ -1,14 +1,16 @@
+// src/app/profile/page.tsx (modificado)
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 
-// Interfaz simplificada para el perfil
+// Interfaz para el perfil del usuario
 interface UserProfile {
   id: number;
   email: string;
   name: string | null;
+  age: number | null;
   createdAt: string;
   subscription: {
     tier: 'FREE' | 'PRO' | 'PRO_PLUS';
@@ -18,10 +20,11 @@ interface UserProfile {
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { accessToken, loading, logout } = useAuth();
+  const { accessToken, loading: authLoading, authFetch, logout } = useAuth();
   
   // Estados para los campos del formulario
   const [name, setName] = useState('');
+  const [age, setAge] = useState<number | ''>('');
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
@@ -29,61 +32,44 @@ export default function ProfilePage() {
   const [pageLoading, setPageLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
   
-  // Perfil simulado
+  // Perfil del usuario
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
-  // Manejo simplificado de token
+  // Cargar datos del perfil
   useEffect(() => {
-    // Verificar token en localStorage como respaldo
-    const storedToken = localStorage.getItem('accessToken');
+    if (authLoading) return;
     
-    // Si no hay token, redirigir al login
-    if (!storedToken) {
-      console.log('No hay token, redirigiendo a login');
+    if (!accessToken) {
       router.push('/login');
       return;
     }
     
-    // Crear un perfil simulado basado en el token (sin llamar al backend)
-    try {
-      // Decodificar el JWT para obtener información básica
-      const payload = storedToken.split('.')[1];
-      const decoded = JSON.parse(atob(payload));
-      
-      // Crear perfil simulado con datos disponibles
-      const mockProfile: UserProfile = {
-        id: decoded.sub || 1,
-        email: decoded.email || 'usuario@ejemplo.com',
-        name: 'Usuario',
-        createdAt: new Date().toISOString(),
-        subscription: {
-          tier: 'FREE',
-          expiresAt: null
+    const loadProfile = async () => {
+      setPageLoading(true);
+      try {
+        const res = await authFetch('/users/me');
+        
+        if (!res.ok) {
+          throw new Error('Error al cargar el perfil');
         }
-      };
-      
-      setProfile(mockProfile);
-      setName(mockProfile.name || '');
-      
-    } catch (e) {
-      console.error('Error al decodificar token:', e);
-      // Usar un perfil por defecto si hay error
-      setProfile({
-        id: 1,
-        email: 'usuario@ejemplo.com',
-        name: 'Usuario Temporal',
-        createdAt: new Date().toISOString(),
-        subscription: {
-          tier: 'FREE',
-          expiresAt: null
-        }
-      });
-      setName('Usuario Temporal');
-      setError('No se pudo obtener información del perfil. Se muestra información temporal.');
-    } finally {
-      setPageLoading(false);
-    }
-  }, [router]);
+        
+        const userData = await res.json();
+        setProfile(userData);
+        
+        // Actualizar los campos del formulario con los datos del usuario
+        setName(userData.name || '');
+        setAge(userData.age || '');
+        
+      } catch (err: any) {
+        console.error('Error cargando perfil:', err);
+        setError('No se pudo cargar la información del perfil');
+      } finally {
+        setPageLoading(false);
+      }
+    };
+    
+    loadProfile();
+  }, [accessToken, authLoading, authFetch, router]);
 
   // Formatear fecha
   const formatDate = (dateString: string) => {
@@ -95,25 +81,40 @@ export default function ProfilePage() {
     return new Date(dateString).toLocaleDateString('es-ES', options);
   };
   
-  // Actualizar perfil (simulado)
+  // Actualizar perfil
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setUpdating(true);
     setUpdateError(null);
     setUpdateSuccess(false);
     
-    // Simulamos una actualización (no hay backend)
-    setTimeout(() => {
-      if (profile) {
-        setProfile({
-          ...profile,
-          name
-        });
+    try {
+      const res = await authFetch('/users/me', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name,
+          age: age === '' ? null : Number(age)
+        })
+      });
+      
+      if (!res.ok) {
+        throw new Error('Error al actualizar el perfil');
       }
+      
+      const updatedUser = await res.json();
+      setProfile({
+        ...profile,
+        ...updatedUser
+      });
+      
       setUpdateSuccess(true);
-      setUpdating(false);
       setEditMode(false);
-    }, 1000);
+    } catch (err: any) {
+      console.error('Error actualizando perfil:', err);
+      setUpdateError(err.message || 'Error al actualizar el perfil');
+    } finally {
+      setUpdating(false);
+    }
   };
 
   // Renderizar un mensaje de carga si estamos esperando datos
@@ -195,12 +196,6 @@ export default function ProfilePage() {
                 {updateError}
               </div>
             )}
-
-            {/* Mensaje informativo sobre el modo de emergencia */}
-            <div className="mb-4 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 text-yellow-700 dark:text-yellow-300 px-4 py-3 rounded-lg">
-              <p className="font-medium">Modo de emergencia activo</p>
-              <p className="text-sm mt-1">Estás viendo una versión simplificada de tu perfil porque el servidor no tiene implementado el endpoint /users/me</p>
-            </div>
 
             {/* Formulario de edición o vista de información */}
             {editMode ? (

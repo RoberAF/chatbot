@@ -14,7 +14,7 @@ export function useAuth() {
   const [error, setError] = useState<string | null>(null);
 
   // Función de depuración para identificar problemas de autenticación
-  const debugAuth = () => {
+  const debugAuth = useCallback(() => {
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem(ACCESS_TOKEN_KEY);
       const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
@@ -35,12 +35,20 @@ export function useAuth() {
         }
       }
     }
-  };
-
-  // Ejecutar debug al inicio para diagnosticar problemas
-  useEffect(() => {
-    debugAuth();
   }, []);
+
+  // Ejecutar debug al inicio para diagnosticar problemas (una sola vez)
+  useEffect(() => {
+    // Usar una bandera en localStorage para asegurar que solo se ejecute una vez por sesión
+    const hasDebugged = localStorage.getItem('auth_debugged');
+    
+    if (!hasDebugged) {
+      console.log('---------- AUTH DEBUG INFO ----------');
+      debugAuth();
+      console.log('-------------------------------------');
+      localStorage.setItem('auth_debugged', 'true');
+    }
+  }, []); // Sin dependencias para que solo se ejecute en montaje
 
   // Cargar token desde localStorage al iniciar
   useEffect(() => {
@@ -62,8 +70,8 @@ export function useAuth() {
     setAccessToken(at);
   }, []);
 
-  // Función para intentar refrescar el token
-  const refreshTokenIfNeeded = async (): Promise<boolean> => {
+  // Función para intentar refrescar el token - AHORA MEMOIZADA
+  const refreshTokenIfNeeded = useCallback(async (): Promise<boolean> => {
     const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
     if (!refreshToken) {
       console.log('No hay refresh token disponible');
@@ -93,7 +101,7 @@ export function useAuth() {
       console.error('Error al refrescar token:', e);
       return false;
     }
-  };
+  }, []); // Sin dependencias para mantener estable la referencia
 
   // Login mejorado con logs para depuración
   const login = useCallback(
@@ -167,7 +175,7 @@ export function useAuth() {
   );
 
   // Registro con validación mejorada
-  const register = async (email: string, password: string) => {
+  const register = useCallback(async (email: string, password: string) => {
     setLoading(true);
     setError(null);
     try {
@@ -192,7 +200,7 @@ export function useAuth() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // Logout con manejo de errores mejorado
   const logout = useCallback(async () => {
@@ -220,107 +228,91 @@ export function useAuth() {
   }, [accessToken, router]);
 
   // authFetch mejorado con refresh automático
-  // Reemplaza la función authFetch en useAuth.ts con esta versión mejorada
-const authFetch = useCallback(
-  async (input: RequestInfo, init: RequestInit = {}) => {
-    console.log('Ejecutando authFetch:', typeof input === 'string' ? input : 'RequestInfo object');
-    
-    // Verificar si hay token en localStorage aunque no esté en estado
-    let currentToken = accessToken;
-    if (!currentToken) {
-      const storedToken = localStorage.getItem(ACCESS_TOKEN_KEY);
-      if (storedToken) {
-        console.log('Token encontrado en localStorage pero no en estado, usándolo directamente');
-        currentToken = storedToken;
-        // Actualizar el estado para futuras peticiones
-        setAccessToken(storedToken);
-      } else {
-        console.log('No hay access token disponible, intentando refresh');
-        const refreshed = await refreshTokenIfNeeded();
-        if (!refreshed) {
-          console.error('No se pudo refrescar el token, redireccionando a login');
-          router.push('/login');
-          throw new Error('No hay token de acceso válido');
-        }
-        // Usar el token recién refrescado
-        currentToken = accessToken || localStorage.getItem(ACCESS_TOKEN_KEY);
-      }
-    }
-
-    // construyo URL absoluta
-    let url: RequestInfo;
-    if (typeof input === 'string') {
-      if (input.startsWith('http')) {
-        url = input;
-      } else {
-        const path = input.startsWith('/') ? input : `/${input}`;
-        url = `${API}${path}`;
-      }
-    } else {
-      url = input;
-    }
-
-    const headers = {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${currentToken}`,
-      ...(init.headers || {}),
-    };
-
-    console.log('Enviando petición a:', typeof url === 'string' ? url : 'URL object');
-    console.log('Con token (primeros caracteres):', currentToken?.substring(0, 15) + '...');
-    
-    try {
-      let res = await fetch(url, { ...init, headers });
+  const authFetch = useCallback(
+    async (input: RequestInfo, init: RequestInit = {}) => {
+      console.debug('Ejecutando authFetch:', typeof input === 'string' ? input : 'RequestInfo object');
       
-      // Si hay error 401 (Unauthorized), intentar refresh
-      if (res.status === 401) {
-        console.log('Recibido 401, intentando refresh token');
-        const refreshed = await refreshTokenIfNeeded();
-        
-        if (refreshed) {
-          console.log('Token refrescado, reintentando petición original');
-          // Actualizar el token en los headers con el nuevo token
-          const newToken = localStorage.getItem(ACCESS_TOKEN_KEY);
-          const newHeaders = {
-            ...headers,
-            Authorization: `Bearer ${newToken}`,
-          };
-          // Reintentar la petición original
-          res = await fetch(url, { ...init, headers: newHeaders });
+      // Verificar si hay token en localStorage aunque no esté en estado
+      let currentToken = accessToken;
+      if (!currentToken) {
+        const storedToken = localStorage.getItem(ACCESS_TOKEN_KEY);
+        if (storedToken) {
+          console.debug('Token encontrado en localStorage pero no en estado');
+          currentToken = storedToken;
+          // Actualizar el estado para futuras peticiones
+          setAccessToken(storedToken);
         } else {
-          console.log('No se pudo refrescar el token, redirigiendo a login');
-          logout();
-          throw new Error('Sesión expirada');
+          console.debug('No hay access token disponible, intentando refresh');
+          const refreshed = await refreshTokenIfNeeded();
+          if (!refreshed) {
+            console.error('No se pudo refrescar el token, redireccionando a login');
+            router.push('/login');
+            throw new Error('No hay token de acceso válido');
+          }
+          // Usar el token recién refrescado
+          currentToken = accessToken || localStorage.getItem(ACCESS_TOKEN_KEY);
         }
       }
-      
-      // Verificar si la respuesta fue satisfactoria
-      if (!res.ok) {
-        console.error(`Error en respuesta HTTP: ${res.status}`);
-        // Intentar obtener detalles del error
-        let errorDetails = '';
-        try {
-          const errorText = await res.text();
-          errorDetails = errorText;
-          console.error('Detalles del error:', errorText);
-        } catch (e) {
-          console.error('No se pudieron obtener detalles del error');
+
+      // construyo URL absoluta
+      let url: RequestInfo;
+      if (typeof input === 'string') {
+        if (input.startsWith('http')) {
+          url = input;
+        } else {
+          const path = input.startsWith('/') ? input : `/${input}`;
+          url = `${API}${path}`;
         }
-        throw new Error(`Error HTTP ${res.status}: ${errorDetails}`);
+      } else {
+        url = input;
       }
+
+      const headers = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${currentToken}`,
+        ...(init.headers || {}),
+      };
+
+      console.debug('Enviando petición a:', typeof url === 'string' ? url : 'URL object');
       
-      return res;
-    } catch (err) {
-      console.error('Error en authFetch:', err);
-      // Si el error no es a causa de una respuesta HTTP, podría ser un error de red
-      if (err instanceof Error && !(err instanceof Response)) {
-        console.error('Tipo de error:', err.name, err.message);
+      try {
+        // Crear un identificador único para esta petición para logging
+        const requestId = Math.random().toString(36).substring(2, 8);
+        console.debug(`[${requestId}] Iniciando petición`);
+        
+        let res = await fetch(url, { ...init, headers });
+        
+        // Si hay error 401 (Unauthorized), intentar refresh
+        if (res.status === 401) {
+          console.debug(`[${requestId}] Recibido 401, intentando refresh token`);
+          const refreshed = await refreshTokenIfNeeded();
+          
+          if (refreshed) {
+            console.debug(`[${requestId}] Token refrescado, reintentando petición original`);
+            // Actualizar el token en los headers con el nuevo token
+            const newToken = localStorage.getItem(ACCESS_TOKEN_KEY);
+            const newHeaders = {
+              ...headers,
+              Authorization: `Bearer ${newToken}`,
+            };
+            // Reintentar la petición original
+            res = await fetch(url, { ...init, headers: newHeaders });
+          } else {
+            console.debug(`[${requestId}] No se pudo refrescar el token, redirigiendo a login`);
+            logout();
+            throw new Error('Sesión expirada');
+          }
+        }
+        
+        console.debug(`[${requestId}] Petición completada con status ${res.status}`);
+        return res;
+      } catch (err) {
+        console.error('Error en authFetch:', err);
+        throw err;
       }
-      throw err;
-    }
-  },
-  [accessToken, logout, router, refreshTokenIfNeeded]
-);
+    },
+    [accessToken, logout, router, refreshTokenIfNeeded]
+  );
 
   return {
     accessToken,

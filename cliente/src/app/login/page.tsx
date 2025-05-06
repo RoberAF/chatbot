@@ -1,27 +1,56 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/hooks/useAuth';
+import { useFirebaseAuth } from '@/hooks/useFirebaseAuth';
 
 export default function LoginPage() {
-  const { login, loading: authLoading } = useAuth();
+  const { login, loginWithGoogle, user, loading, error } = useFirebaseAuth();
   const router = useRouter();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  // Redireccionar si el usuario ya está autenticado
+  useEffect(() => {
+    if (user) {
+      console.log('Usuario autenticado, redirigiendo a /chat');
+      router.push('/chat');
+    }
+  }, [user, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    setLocalError(null);
     try {
       await login(email, password);
+      // La redirección se maneja en el useEffect
     } catch (err: any) {
-      setError(err.message);
+      setLocalError('Credenciales incorrectas. Intenta de nuevo.');
     }
   };
+
+  const handleGoogleLogin = async () => {
+    try {
+      await loginWithGoogle();
+      // La redirección se maneja en el useEffect
+    } catch (err: any) {
+      setLocalError('Error al iniciar sesión con Google.');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-slate-700 dark:text-slate-300">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main className="w-full h-screen flex flex-col items-center justify-center px-4 bg-slate-50 dark:bg-slate-900">
@@ -41,9 +70,10 @@ export default function LoginPage() {
             </a>
           </p>
         </div>
+
         {/* Error */}
-        {error && (
-          <p className="text-red-500 text-center">{error}</p>
+        {(error || localError) && (
+          <p className="text-red-500 text-center">{error || localError}</p>
         )}
 
         {/* Formulario */}
@@ -120,7 +150,7 @@ export default function LoginPage() {
               rounded-lg duration-150
             "
           >
-            {authLoading ? 'Cargando…' : 'Entrar'}
+            {loading ? 'Cargando…' : 'Entrar'}
           </button>
         </form>
 
@@ -135,18 +165,13 @@ export default function LoginPage() {
 
         {/* Google */}
         <button
-          className="
-            w-full flex items-center justify-center gap-x-3 py-2.5
-            border border-slate-300 dark:border-slate-700
-            rounded-lg text-sm font-medium
-            hover:bg-slate-100 dark:hover:bg-slate-800
-            duration-150
-          "
-          onClick={() => {
-            /* login con Google aquí */
-          }}
+          className="w-full flex items-center justify-center gap-x-3 py-2.5
+          border border-slate-300 dark:border-slate-700 rounded-lg
+          text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800
+          duration-150"
+          onClick={handleGoogleLogin}
         >
-          {/* SVG de Google */}
+          {/* SVG de Google (mantener el existente) */}
           <svg className="w-5 h-5" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
             <g clipPath="url(#clip0_17_40)">
               <path d="M47.532 24.5528C47.532 22.9214 47.3997 21.2811 47.1175 19.6761H24.48V28.9181H37.4434C36.9055 31.8988 35.177 34.5356 32.6461 36.2111V42.2078H40.3801C44.9217 38.0278 47.532 31.8547 47.532 24.5528Z" fill="#4285F4" />
