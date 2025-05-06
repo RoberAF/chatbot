@@ -1,47 +1,164 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useFirebaseAuth } from '@/hooks/useFirebaseAuth';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function LoginPage() {
-  const { login, loginWithGoogle, user, loading, error } = useFirebaseAuth();
   const router = useRouter();
+  
+  // Firebase auth for Google login
+  const { 
+    login: firebaseLogin, 
+    loginWithGoogle, 
+    user, 
+    loading: firebaseLoading, 
+    error: firebaseError,
+    getIdToken
+  } = useFirebaseAuth();
+  
+  // Custom JWT auth
+  const { 
+    login: jwtLogin, 
+    loading: jwtLoading, 
+    error: jwtError 
+  } = useAuth();
 
+  // Form state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
+  
+  // UI state
   const [localError, setLocalError] = useState<string | null>(null);
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [processingGoogleAuth, setProcessingGoogleAuth] = useState(false);
 
-  // Redireccionar si el usuario ya está autenticado
+  // Effect for redirection after successful Firebase auth
   useEffect(() => {
-    if (user) {
-      console.log('Usuario autenticado, redirigiendo a /chat');
-      router.push('/chat');
+    // Check if we already have a user and are not in the middle of redirecting
+    if (user && !isRedirecting && !processingGoogleAuth) {
+      console.log('Firebase user detected:', user.email);
+      
+      // Prevent multiple redirections
+      setIsRedirecting(true);
+      
+      // After firebase auth, we need to sync with our backend
+      // Get the Firebase ID token
+      getIdToken().then(firebaseToken => {
+        if (firebaseToken) {
+          console.log('Firebase token obtained, syncing with backend...');
+          
+          // You would replace this with your actual endpoint
+          // This endpoint should validate the Firebase token and issue your JWT tokens
+          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api'}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              email: user.email,
+              // Use a placeholder password or consider implementing a different
+              // endpoint for Firebase auth in your backend
+              password: 'firebase-auth-user' 
+            })
+          })
+          .then(res => {
+            if (!res.ok) {
+              throw new Error('Backend sync failed');
+            }
+            return res.json();
+          })
+          .then(data => {
+            // Store tokens in localStorage
+            localStorage.setItem('accessToken', data.accessToken);
+            localStorage.setItem('refreshToken', data.refreshToken);
+            console.log('Backend sync successful, redirecting to chat...');
+            
+            // Use window.location for a hard redirect to avoid Next.js router issues
+            window.location.href = '/chat';
+          })
+          .catch(err => {
+            console.error('Error syncing with backend:', err);
+            setLocalError('Error al sincronizar con el backend. Intente de nuevo.');
+            setIsRedirecting(false);
+          });
+        } else {
+          console.error('No Firebase token available');
+          setLocalError('Error al obtener token de autenticación');
+          setIsRedirecting(false);
+        }
+      })
+      .catch(err => {
+        console.error('Error getting Firebase token:', err);
+        setLocalError('Error al obtener token de Firebase');
+        setIsRedirecting(false);
+      });
     }
-  }, [user, router]);
+  }, [user, isRedirecting, getIdToken, processingGoogleAuth]);
 
+  // Handle form submission (email/password login)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError(null);
+    
     try {
-      await login(email, password);
-      // La redirección se maneja en el useEffect
+      // Try Firebase auth first
+      await firebaseLogin(email, password);
+      
+      // The useEffect above will handle the redirection after successful login
     } catch (err: any) {
-      setLocalError('Credenciales incorrectas. Intenta de nuevo.');
+      console.error('Firebase login error:', err);
+      
+      // Fall back to JWT auth if Firebase fails
+      try {
+        await jwtLogin(email, password);
+        console.log('JWT login successful, redirecting...');
+        
+        // Direct navigation for JWT auth success
+        router.push('/chat');
+      } catch (jwtErr: any) {
+        console.error('JWT login error:', jwtErr);
+        setLocalError('Credenciales incorrectas. Intenta de nuevo.');
+      }
     }
   };
 
-  const handleGoogleLogin = async () => {
+  // Enhanced Google login handler
+  const handleGoogleLogin = useCallback(async () => {
+    setLocalError(null);
+    setProcessingGoogleAuth(true);
+    
     try {
+      console.log('Iniciando login con Google...');
       await loginWithGoogle();
-      // La redirección se maneja en el useEffect
+      
+      // The useEffect will handle the redirection
+      console.log('Google login successful, waiting for redirect...');
     } catch (err: any) {
-      setLocalError('Error al iniciar sesión con Google.');
+      console.error('Google login error:', err);
+      setLocalError('Error al iniciar sesión con Google. Intente de nuevo.');
+      setProcessingGoogleAuth(false);
     }
-  };
+  }, [loginWithGoogle]);
 
-  if (loading) {
+  // If already redirecting, show a loading state
+  if (isRedirecting || processingGoogleAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-slate-700 dark:text-slate-300">
+            {processingGoogleAuth 
+              ? 'Procesando autenticación con Google...' 
+              : 'Iniciando sesión...'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Main loading state
+  if (firebaseLoading || jwtLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
         <div className="text-center">
@@ -55,7 +172,7 @@ export default function LoginPage() {
   return (
     <main className="w-full h-screen flex flex-col items-center justify-center px-4 bg-slate-50 dark:bg-slate-900">
       <div className="max-w-sm w-full text-slate-700 dark:text-slate-300 space-y-5">
-        {/* Cabecera */}
+        {/* Header */}
         <div className="text-center pb-8 space-y-2">
           <h3 className="mt-5 text-slate-900 dark:text-slate-200 text-2xl font-bold sm:text-3xl">
             Inicia sesión
@@ -71,14 +188,16 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Error */}
-        {(error || localError) && (
-          <p className="text-red-500 text-center">{error || localError}</p>
+        {/* Error messages */}
+        {(firebaseError || jwtError || localError) && (
+          <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 p-3 rounded-md text-sm">
+            {localError || firebaseError || jwtError}
+          </div>
         )}
 
-        {/* Formulario */}
+        {/* Login form */}
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Email */}
+          {/* Email field */}
           <div>
             <label className="font-medium text-slate-800 dark:text-slate-200">
               Email
@@ -87,7 +206,7 @@ export default function LoginPage() {
               type="email"
               required
               value={email}
-              onChange={e => setEmail(e.target.value)}
+              onChange={(e) => setEmail(e.target.value)}
               className="
                 w-full mt-2 px-3 py-2
                 text-slate-900 dark:text-slate-100
@@ -99,7 +218,7 @@ export default function LoginPage() {
             />
           </div>
 
-          {/* Password */}
+          {/* Password field */}
           <div>
             <label className="font-medium text-slate-800 dark:text-slate-200">
               Contraseña
@@ -108,7 +227,7 @@ export default function LoginPage() {
               type="password"
               required
               value={password}
-              onChange={e => setPassword(e.target.value)}
+              onChange={(e) => setPassword(e.target.value)}
               className="
                 w-full mt-2 px-3 py-2
                 text-slate-900 dark:text-slate-100
@@ -120,13 +239,13 @@ export default function LoginPage() {
             />
           </div>
 
-          {/* Recordarme & Olvidé */}
+          {/* Remember me & Forgot password */}
           <div className="flex items-center justify-between text-sm">
             <label className="flex items-center gap-x-2 text-slate-700 dark:text-slate-400">
               <input
                 type="checkbox"
                 checked={remember}
-                onChange={e => setRemember(e.target.checked)}
+                onChange={(e) => setRemember(e.target.checked)}
                 className="h-4 w-4 rounded border border-slate-300 dark:border-slate-600 focus:ring-blue-500"
               />
               Recordarme
@@ -140,17 +259,19 @@ export default function LoginPage() {
             </button>
           </div>
 
-          {/* Botón */}
+          {/* Login button */}
           <button
             type="submit"
+            disabled={firebaseLoading || jwtLoading}
             className="
               w-full px-4 py-2
               text-white font-medium
               bg-blue-600 hover:bg-blue-500 active:bg-blue-700
+              disabled:bg-blue-400 disabled:cursor-not-allowed
               rounded-lg duration-150
             "
           >
-            {loading ? 'Cargando…' : 'Entrar'}
+            {(firebaseLoading || jwtLoading) ? 'Cargando…' : 'Entrar'}
           </button>
         </form>
 
@@ -163,15 +284,19 @@ export default function LoginPage() {
           <hr className="flex-1 border-slate-300 dark:border-slate-700" />
         </div>
 
-        {/* Google */}
+        {/* Google login button */}
         <button
-          className="w-full flex items-center justify-center gap-x-3 py-2.5
-          border border-slate-300 dark:border-slate-700 rounded-lg
-          text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800
-          duration-150"
           onClick={handleGoogleLogin}
+          disabled={firebaseLoading || jwtLoading || processingGoogleAuth}
+          className="
+            w-full flex items-center justify-center gap-x-3 py-2.5
+            border border-slate-300 dark:border-slate-700 rounded-lg
+            text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800
+            disabled:opacity-50 disabled:cursor-not-allowed
+            transition-colors duration-150
+          "
         >
-          {/* SVG de Google (mantener el existente) */}
+          {/* Google SVG */}
           <svg className="w-5 h-5" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
             <g clipPath="url(#clip0_17_40)">
               <path d="M47.532 24.5528C47.532 22.9214 47.3997 21.2811 47.1175 19.6761H24.48V28.9181H37.4434C36.9055 31.8988 35.177 34.5356 32.6461 36.2111V42.2078H40.3801C44.9217 38.0278 47.532 31.8547 47.532 24.5528Z" fill="#4285F4" />
@@ -185,8 +310,16 @@ export default function LoginPage() {
               </clipPath>
             </defs>
           </svg>
-          Continuar con Google
+          {processingGoogleAuth ? 'Procesando...' : 'Continuar con Google'}
         </button>
+        
+        {/* Debug info - remove in production */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mt-8 text-xs text-slate-500 dark:text-slate-400 p-2 border border-slate-200 dark:border-slate-700 rounded">
+            <p>Debug: Firebase auth state - {user ? `Logged in as ${user.email}` : 'Not logged in'}</p>
+            <p>JWT Token - {localStorage.getItem('accessToken') ? 'Present' : 'Not present'}</p>
+          </div>
+        )}
       </div>
     </main>
   );

@@ -5,80 +5,130 @@ import { useState, useEffect, useCallback } from 'react';
 
 const ACCESS_TOKEN_KEY = 'accessToken';
 const REFRESH_TOKEN_KEY = 'refreshToken';
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api'; // ej. http://localhost:3000/api
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
+/**
+ * Enhanced authentication hook that integrates with Firebase auth
+ * Handles JWT tokens for backend API calls
+ */
 export function useAuth() {
   const router = useRouter();
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Función de depuración para identificar problemas de autenticación
+  // Debug logging function
+  const logDebug = useCallback((message: string, ...args: any[]) => {
+    const now = new Date();
+    const timestamp = `${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}.${now.getMilliseconds()}`;
+    console.log(`[${timestamp}] 🔑 AUTH: ${message}`, ...args);
+  }, []);
+
+  // Function to debug token state - useful for troubleshooting
   const debugAuth = useCallback(() => {
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem(ACCESS_TOKEN_KEY);
       const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
 
-      console.log('Access token existe:', !!token);
-      console.log('Refresh token existe:', !!refreshToken);
+      logDebug('Access token exists:', !!token);
+      logDebug('Refresh token exists:', !!refreshToken);
 
       if (token) {
         try {
-          // Intentar decodificar el JWT para ver cuándo expira
+          // Try to decode the JWT to see when it expires
           const payload = token.split('.')[1];
           const decoded = JSON.parse(atob(payload));
           const expiry = new Date(decoded.exp * 1000);
-          console.log('Token expira:', expiry);
-          console.log('Token expirado:', expiry < new Date());
+          logDebug('Token expires:', expiry);
+          logDebug('Token expired:', expiry < new Date());
         } catch (e) {
-          console.error('Error al decodificar token:', e);
+          logDebug('Error decoding token:', e);
         }
       }
     }
-  }, []);
+  }, [logDebug]);
 
-  // Ejecutar debug al inicio para diagnosticar problemas (una sola vez)
-  useEffect(() => {
-    // Usar una bandera en localStorage para asegurar que solo se ejecute una vez por sesión
-    const hasDebugged = localStorage.getItem('auth_debugged');
-    
-    if (!hasDebugged) {
-      console.log('---------- AUTH DEBUG INFO ----------');
-      debugAuth();
-      console.log('-------------------------------------');
-      localStorage.setItem('auth_debugged', 'true');
-    }
-  }, []); // Sin dependencias para que solo se ejecute en montaje
-
-  // Cargar token desde localStorage al iniciar
+  // Load token from localStorage on initialization
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const storedToken = localStorage.getItem(ACCESS_TOKEN_KEY);
-      console.log('Token encontrado en localStorage:', !!storedToken);
+      logDebug(`Initial token check: ${storedToken ? 'Present' : 'Not found'}`);
+      
       if (storedToken) {
         setAccessToken(storedToken);
       }
+      
+      // Check for firebase token that might need to be exchanged
+      const firebaseToken = localStorage.getItem('firebaseToken');
+      if (firebaseToken && !storedToken) {
+        logDebug('Firebase token found without JWT, attempting exchange');
+        exchangeFirebaseToken(firebaseToken).catch(err => {
+          logDebug('Firebase token exchange failed', err);
+        });
+      }
+      
+      // Run debug once to help troubleshoot issues
+      const hasDebugged = localStorage.getItem('auth_debugged');
+      if (!hasDebugged) {
+        logDebug('---------- AUTH DEBUG INFO ----------');
+        debugAuth();
+        logDebug('-------------------------------------');
+        localStorage.setItem('auth_debugged', 'true');
+      }
+      
+      setLoading(false);
     }
-    setLoading(false);
-  }, []);
+  }, [logDebug, debugAuth]);
 
-  // Guardar tokens en localStorage y estado
+  // Function to exchange Firebase token for JWT
+  const exchangeFirebaseToken = useCallback(async (firebaseToken: string) => {
+    logDebug('Exchanging Firebase token for JWT');
+    try {
+      // This endpoint should be implemented on your backend
+      // It would verify the Firebase token and issue your JWT tokens
+      const res = await fetch(`${API}/auth/firebase-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ firebaseToken }),
+      });
+      
+      if (!res.ok) {
+        throw new Error(`Exchange failed: ${res.status}`);
+      }
+      
+      const { accessToken: newAt, refreshToken: newRt } = await res.json();
+      logDebug('Token exchange successful');
+      
+      localStorage.setItem(ACCESS_TOKEN_KEY, newAt);
+      localStorage.setItem(REFRESH_TOKEN_KEY, newRt);
+      localStorage.removeItem('firebaseToken'); // Clean up
+      
+      setAccessToken(newAt);
+      return true;
+    } catch (err) {
+      logDebug('Token exchange error', err);
+      setError('Error al intercambiar token de Firebase');
+      return false;
+    }
+  }, [logDebug, API]);
+
+  // Save tokens to localStorage and state
   const saveTokens = useCallback((at: string, rt: string) => {
-    console.log('Guardando tokens en localStorage');
+    logDebug('Saving new tokens to localStorage');
     localStorage.setItem(ACCESS_TOKEN_KEY, at);
     localStorage.setItem(REFRESH_TOKEN_KEY, rt);
     setAccessToken(at);
-  }, []);
+  }, [logDebug]);
 
-  // Función para intentar refrescar el token - AHORA MEMOIZADA
+  // Refresh token function - returns boolean success indicator
   const refreshTokenIfNeeded = useCallback(async (): Promise<boolean> => {
     const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
     if (!refreshToken) {
-      console.log('No hay refresh token disponible');
+      logDebug('No refresh token available');
       return false;
     }
 
-    console.log('Intentando refrescar token');
+    logDebug('Attempting to refresh token');
     try {
       const res = await fetch(`${API}/auth/refresh`, {
         method: 'POST',
@@ -87,174 +137,189 @@ export function useAuth() {
       });
 
       if (!res.ok) {
-        console.error('Error en respuesta de refresh:', await res.text());
-        throw new Error('Falló el refresh del token');
+        logDebug('Refresh token response error:', await res.text());
+        throw new Error('Failed to refresh token');
       }
 
       const { accessToken: newAt, refreshToken: newRt } = await res.json();
-      console.log('Token refrescado exitosamente');
+      logDebug('Token refresh successful');
+      
       localStorage.setItem(ACCESS_TOKEN_KEY, newAt);
       localStorage.setItem(REFRESH_TOKEN_KEY, newRt);
       setAccessToken(newAt);
       return true;
-    } catch (e) {
-      console.error('Error al refrescar token:', e);
+    } catch (err) {
+      logDebug('Token refresh error:', err);
       return false;
     }
-  }, []); // Sin dependencias para mantener estable la referencia
+  }, [logDebug, API]);
 
-  // Login mejorado con logs para depuración
-  const login = useCallback(
-    async (email: string, password: string) => {
-      setLoading(true);
-      setError(null);
-      try {
-        console.log('Intentando login con:', email);
-        const res = await fetch(`${API}/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password }),
-        });
-
-        // Primero obtén el texto completo de la respuesta
-        const responseText = await res.text();
-        console.log('Respuesta del servidor (texto):', responseText);
-
-        if (!res.ok) {
-          let errorMessage = 'Login failed';
-          try {
-            // Intenta parsear el texto como JSON para obtener el mensaje de error
-            const errorData = JSON.parse(responseText);
-            errorMessage = errorData.message || errorMessage;
-          } catch (e) {
-            console.error('No se pudo parsear la respuesta de error:', e);
-          }
-          throw new Error(errorMessage);
-        }
-
-        // Ahora parsea la respuesta como JSON
-        let responseData;
-        try {
-          responseData = JSON.parse(responseText);
-        } catch (e) {
-          console.error('Error al parsear respuesta JSON:', e);
-          throw new Error('Formato de respuesta inválido');
-        }
-
-        const { accessToken: at, refreshToken: rt } = responseData;
-
-        // Verificar que los tokens existen
-        console.log('Recibido access token:', at ? `Sí (longitud: ${at.length})` : 'No');
-        console.log('Recibido refresh token:', rt ? `Sí (longitud: ${rt.length})` : 'No');
-
-        if (!at || !rt) {
-          console.error('Tokens no encontrados en la respuesta:', responseData);
-          throw new Error('No se recibieron tokens válidos del servidor');
-        }
-
-        // Guardar explícitamente en localStorage
-        localStorage.setItem(ACCESS_TOKEN_KEY, at);
-        localStorage.setItem(REFRESH_TOKEN_KEY, rt);
-        console.log('Tokens guardados en localStorage');
-
-        // Actualizar el estado
-        setAccessToken(at);
-        console.log('Estado accessToken actualizado');
-
-        // Navegar a la página de chat
-        router.push('/chat');
-      } catch (err: any) {
-        console.error('Error en login:', err);
-        setError(err.message);
-        throw err;
-      } finally {
-        setLoading(false);
-      }
-    },
-    [router]
-  );
-
-  // Registro con validación mejorada
-  const register = useCallback(async (email: string, password: string) => {
+  // Enhanced login function with proper error handling
+  const login = useCallback(async (email: string, password: string) => {
+    logDebug(`Logging in user: ${email}`);
     setLoading(true);
     setError(null);
+    
     try {
-      console.log('Intentando registro con:', email);
-      const res = await fetch(`${API}/auth/register`, {
+      const res = await fetch(`${API}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
 
+      // Get full response text for better debugging
+      const responseText = await res.text();
+      logDebug('Login response:', responseText);
+
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || 'Error al registrarse');
+        let errorMessage = 'Login failed';
+        try {
+          // Try to parse the error message
+          const errorData = JSON.parse(responseText);
+          errorMessage = errorData.message || errorMessage;
+        } catch (e) {
+          logDebug('Could not parse error response:', e);
+        }
+        throw new Error(errorMessage);
       }
 
-      console.log('Registro exitoso');
+      // Parse the response
+      let responseData;
+      try {
+        responseData = JSON.parse(responseText);
+      } catch (e) {
+        logDebug('Error parsing JSON response:', e);
+        throw new Error('Invalid response format');
+      }
+
+      const { accessToken: at, refreshToken: rt } = responseData;
+
+      // Verify tokens exist
+      if (!at || !rt) {
+        logDebug('Tokens missing in response:', responseData);
+        throw new Error('Invalid tokens received');
+      }
+
+      // Save tokens and update state
+      saveTokens(at, rt);
+      logDebug('Login successful, tokens saved');
+
+      // Clear any redirects from localStorage to prevent loops
+      localStorage.removeItem('auth_redirect_to');
+      
       return true;
     } catch (err: any) {
-      console.error('Error en registro:', err);
-      setError(err.message);
+      logDebug('Login error:', err);
+      setError(err.message || 'Error al iniciar sesión');
       throw err;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [API, logDebug, saveTokens]);
 
-  // Logout con manejo de errores mejorado
+  // Register function with enhanced error handling
+  const register = useCallback(async (email: string, password: string, name?: string, age?: number) => {
+    logDebug(`Registering new user: ${email}`);
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Prepare registration data
+      const userData = {
+        email,
+        password,
+        ...(name && { name }),
+        ...(age && { age }),
+      };
+      
+      const res = await fetch(`${API}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Error al registrar usuario');
+      }
+
+      logDebug('Registration successful');
+      return true;
+    } catch (err: any) {
+      logDebug('Registration error:', err);
+      setError(err.message || 'Error al registrar usuario');
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [API, logDebug]);
+
+  // Enhanced logout function
   const logout = useCallback(async () => {
-    console.log('Iniciando logout');
+    logDebug('Starting logout process');
     try {
       if (accessToken) {
-        const res = await fetch(`${API}/auth/logout`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
-        console.log('Respuesta de logout:', res.ok ? 'Exitosa' : 'Fallida');
+        // Try to notify the server about logout
+        try {
+          const res = await fetch(`${API}/auth/logout`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+          });
+          logDebug('Server logout response:', res.ok ? 'Success' : 'Failed');
+        } catch (e) {
+          // Non-critical error, continue with local logout
+          logDebug('Server logout request failed:', e);
+        }
       }
-    } catch (e) {
-      console.warn('Error en logout API:', e);
     } finally {
-      console.log('Limpiando tokens locales');
+      // Always clear local storage, even if server request fails
+      logDebug('Clearing local tokens');
       localStorage.removeItem(ACCESS_TOKEN_KEY);
       localStorage.removeItem(REFRESH_TOKEN_KEY);
+      localStorage.removeItem('firebaseToken');
       setAccessToken(null);
+      
+      // Redirect to login page
       router.push('/login');
     }
-  }, [accessToken, router]);
+  }, [accessToken, API, logDebug, router]);
 
-  // authFetch mejorado con refresh automático
+  // Enhanced authFetch with automatic token refresh and better error handling
   const authFetch = useCallback(
     async (input: RequestInfo, init: RequestInit = {}) => {
-      console.debug('Ejecutando authFetch:', typeof input === 'string' ? input : 'RequestInfo object');
+      const requestId = Math.random().toString(36).substring(2, 8);
+      logDebug(`[${requestId}] Starting authenticated request to: ${typeof input === 'string' ? input : 'RequestInfo object'}`);
       
-      // Verificar si hay token en localStorage aunque no esté en estado
+      // Get the current token, either from state or localStorage
       let currentToken = accessToken;
       if (!currentToken) {
         const storedToken = localStorage.getItem(ACCESS_TOKEN_KEY);
         if (storedToken) {
-          console.debug('Token encontrado en localStorage pero no en estado');
+          logDebug(`[${requestId}] Token found in localStorage but not in state`);
           currentToken = storedToken;
-          // Actualizar el estado para futuras peticiones
           setAccessToken(storedToken);
         } else {
-          console.debug('No hay access token disponible, intentando refresh');
+          logDebug(`[${requestId}] No access token available, attempting refresh`);
           const refreshed = await refreshTokenIfNeeded();
           if (!refreshed) {
-            console.error('No se pudo refrescar el token, redireccionando a login');
+            logDebug(`[${requestId}] Token refresh failed, redirecting to login`);
+            
+            // Save the current path for redirect after login
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('auth_redirect_to', window.location.pathname + window.location.search);
+            }
+            
             router.push('/login');
-            throw new Error('No hay token de acceso válido');
+            throw new Error('Authentication required');
           }
-          // Usar el token recién refrescado
-          currentToken = accessToken || localStorage.getItem(ACCESS_TOKEN_KEY);
+          currentToken = localStorage.getItem(ACCESS_TOKEN_KEY);
         }
       }
 
-      // construyo URL absoluta
+      // Build absolute URL if needed
       let url: RequestInfo;
       if (typeof input === 'string') {
         if (input.startsWith('http')) {
@@ -267,53 +332,51 @@ export function useAuth() {
         url = input;
       }
 
+      // Add authorization header to request
       const headers = {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${currentToken}`,
         ...(init.headers || {}),
       };
 
-      console.debug('Enviando petición a:', typeof url === 'string' ? url : 'URL object');
+      logDebug(`[${requestId}] Sending request with auth header`);
       
       try {
-        // Crear un identificador único para esta petición para logging
-        const requestId = Math.random().toString(36).substring(2, 8);
-        console.debug(`[${requestId}] Iniciando petición`);
-        
         let res = await fetch(url, { ...init, headers });
         
-        // Si hay error 401 (Unauthorized), intentar refresh
+        // Handle 401 Unauthorized by attempting token refresh
         if (res.status === 401) {
-          console.debug(`[${requestId}] Recibido 401, intentando refresh token`);
+          logDebug(`[${requestId}] Received 401, attempting token refresh`);
           const refreshed = await refreshTokenIfNeeded();
           
           if (refreshed) {
-            console.debug(`[${requestId}] Token refrescado, reintentando petición original`);
-            // Actualizar el token en los headers con el nuevo token
+            logDebug(`[${requestId}] Token refreshed, retrying original request`);
+            // Update token in headers
             const newToken = localStorage.getItem(ACCESS_TOKEN_KEY);
             const newHeaders = {
               ...headers,
               Authorization: `Bearer ${newToken}`,
             };
-            // Reintentar la petición original
+            // Retry the original request
             res = await fetch(url, { ...init, headers: newHeaders });
           } else {
-            console.debug(`[${requestId}] No se pudo refrescar el token, redirigiendo a login`);
+            logDebug(`[${requestId}] Token refresh failed, logging out`);
             logout();
-            throw new Error('Sesión expirada');
+            throw new Error('Your session has expired. Please log in again.');
           }
         }
         
-        console.debug(`[${requestId}] Petición completada con status ${res.status}`);
+        logDebug(`[${requestId}] Request completed with status ${res.status}`);
         return res;
       } catch (err) {
-        console.error('Error en authFetch:', err);
+        logDebug(`[${requestId}] Request error:`, err);
         throw err;
       }
     },
-    [accessToken, logout, router, refreshTokenIfNeeded]
+    [accessToken, API, logout, router, refreshTokenIfNeeded, logDebug]
   );
 
+  // Return the hook interface
   return {
     accessToken,
     loading,
@@ -322,5 +385,6 @@ export function useAuth() {
     register,
     logout,
     authFetch,
+    refreshTokenIfNeeded,
   };
 }

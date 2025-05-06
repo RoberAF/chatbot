@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   GoogleAuthProvider, 
   signInWithPopup, 
@@ -13,115 +13,197 @@ import {
 import { auth } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 
+/**
+ * Enhanced Firebase authentication hook
+ * Handles synchronization with custom JWT backend
+ */
 export function useFirebaseAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   
-  // Escucha cambios en el estado de autenticación
+  // Track the last navigation attempt to prevent navigation loops
+  const [lastNavigationAttempt, setLastNavigationAttempt] = useState<string | null>(null);
+  
+  // Enhanced logging for better debugging
+  const logWithTimestamp = useCallback((message: string, ...args: any[]) => {
+    const now = new Date();
+    const timestamp = `${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}.${now.getMilliseconds()}`;
+    console.log(`[${timestamp}] ${message}`, ...args);
+  }, []);
+  
+  // Listen for Firebase authentication state changes
   useEffect(() => {
-    console.log('Configurando escucha de autenticación Firebase');
+    logWithTimestamp('Setting up Firebase auth listener');
+    
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      console.log('Estado de autenticación Firebase cambiado:', currentUser ? 'autenticado' : 'no autenticado');
+      logWithTimestamp('Firebase auth state changed:', currentUser ? `authenticated as ${currentUser.email}` : 'not authenticated');
       setUser(currentUser);
       setLoading(false);
       
-      // Importante: si estamos autenticados, guarda el token en localStorage
+      // Generate and store tokens when user is authenticated
       if (currentUser) {
-        currentUser.getIdToken().then(token => {
-          console.log('Token Firebase obtenido, guardando en localStorage');
-          localStorage.setItem('accessToken', token);
-          // No redirigir automáticamente aquí
-        });
+        exchangeFirebaseTokenForJWT(currentUser);
       }
     });
     
-    return () => unsubscribe();
-  }, []);
+    return () => {
+      logWithTimestamp('Cleaning up Firebase auth listener');
+      unsubscribe();
+    };
+  }, [logWithTimestamp]);
   
-  // Login con Google
-  const loginWithGoogle = async () => {
-    console.log('Iniciando login con Google');
+  // Function to exchange Firebase token for custom JWT
+  const exchangeFirebaseTokenForJWT = useCallback(async (currentUser: User) => {
+    try {
+      logWithTimestamp('Getting Firebase ID token');
+      const firebaseToken = await currentUser.getIdToken();
+      
+      logWithTimestamp('Firebase token obtained, saving to localStorage for now');
+      localStorage.setItem('firebaseToken', firebaseToken);
+      
+      // Here you would normally exchange the Firebase token for your custom JWT
+      // For now, we'll simulate this by simply storing the Firebase token
+      // You would implement your actual token exchange endpoint here
+      
+      logWithTimestamp('Token exchange process completed');
+      
+      // Check if we need to redirect after authentication
+      const redirectTo = localStorage.getItem('auth_redirect_to');
+      if (redirectTo && redirectTo !== lastNavigationAttempt) {
+        logWithTimestamp(`Redirecting to saved path: ${redirectTo}`);
+        setLastNavigationAttempt(redirectTo);
+        localStorage.removeItem('auth_redirect_to');
+        router.push(redirectTo);
+      }
+    } catch (err: any) {
+      logWithTimestamp('Error exchanging Firebase token:', err);
+      setError(`Error exchanging token: ${err.message}`);
+    }
+  }, [logWithTimestamp, router, lastNavigationAttempt]);
+  
+  // Google authentication
+  const loginWithGoogle = useCallback(async () => {
+    logWithTimestamp('Starting Google login flow');
     setLoading(true);
     try {
       const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      console.log('Login con Google exitoso');
+      // Add additional scopes if needed
+      provider.addScope('https://www.googleapis.com/auth/userinfo.email');
+      provider.addScope('https://www.googleapis.com/auth/userinfo.profile');
       
-      // No redirigir automáticamente, dejar que el efecto de onAuthStateChanged lo maneje
+      logWithTimestamp('Opening Google auth popup');
+      const result = await signInWithPopup(auth, provider);
+      
+      logWithTimestamp('Google auth successful, user:', result.user.email);
+      
+      // The Firebase auth state listener will handle token exchange
       return result;
     } catch (err: any) {
-      console.error('Error en login con Google:', err);
-      setError(err.message);
+      logWithTimestamp('Google login error:', err);
+      
+      // Handle specific Google auth errors
+      if (err.code === 'auth/popup-closed-by-user') {
+        setError('Login cancelado. Por favor, intente de nuevo.');
+      } else if (err.code === 'auth/popup-blocked') {
+        setError('El navegador bloqueó la ventana emergente. Por favor, permita ventanas emergentes e intente de nuevo.');
+      } else {
+        setError(err.message);
+      }
       throw err;
     } finally {
       setLoading(false);
     }
-  };
+  }, [logWithTimestamp]);
   
-  // Login con email y contraseña
-  const login = async (email: string, password: string) => {
-    console.log('Iniciando login con email/password');
+  // Email/password login
+  const login = useCallback(async (email: string, password: string) => {
+    logWithTimestamp(`Starting email login for: ${email}`);
     setLoading(true);
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
-      console.log('Login con email exitoso');
-      // No redirigir automáticamente
+      logWithTimestamp('Email login successful');
       return result;
     } catch (err: any) {
-      console.error('Error en login:', err);
-      setError(err.message);
+      logWithTimestamp('Email login error:', err);
+      
+      // Translate Firebase error codes to user-friendly messages
+      if (err.code === 'auth/invalid-credential') {
+        setError('Email o contraseña incorrectos.');
+      } else if (err.code === 'auth/user-disabled') {
+        setError('Esta cuenta ha sido deshabilitada.');
+      } else if (err.code === 'auth/user-not-found') {
+        setError('No existe una cuenta con este email.');
+      } else if (err.code === 'auth/wrong-password') {
+        setError('Contraseña incorrecta.');
+      } else {
+        setError(err.message);
+      }
       throw err;
     } finally {
       setLoading(false);
     }
-  };
+  }, [logWithTimestamp]);
   
-  // Registro
-  const register = async (email: string, password: string) => {
-    console.log('Iniciando registro');
+  // Registration with email and password
+  const register = useCallback(async (email: string, password: string) => {
+    logWithTimestamp(`Starting registration for: ${email}`);
     setLoading(true);
     try {
       const result = await createUserWithEmailAndPassword(auth, email, password);
-      console.log('Registro exitoso');
-      // No redirigir automáticamente
+      logWithTimestamp('Registration successful');
       return result;
     } catch (err: any) {
-      console.error('Error en registro:', err);
-      setError(err.message);
+      logWithTimestamp('Registration error:', err);
+      
+      // Translate Firebase error codes to user-friendly messages
+      if (err.code === 'auth/email-already-in-use') {
+        setError('Este email ya está registrado.');
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Email inválido.');
+      } else if (err.code === 'auth/weak-password') {
+        setError('La contraseña es demasiado débil. Use al menos 6 caracteres.');
+      } else {
+        setError(err.message);
+      }
       throw err;
     } finally {
       setLoading(false);
     }
-  };
+  }, [logWithTimestamp]);
   
-  // Cerrar sesión
-  const logout = async () => {
-    console.log('Cerrando sesión Firebase');
+  // Logout from both Firebase and custom JWT
+  const logout = useCallback(async () => {
+    logWithTimestamp('Starting logout process');
     try {
       await signOut(auth);
-      // Limpiar localStorage al cerrar sesión
+      
+      // Clear all authentication tokens
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
-      console.log('Sesión cerrada correctamente');
+      localStorage.removeItem('firebaseToken');
+      localStorage.removeItem('auth_redirect_to');
+      
+      logWithTimestamp('Logout completed successfully');
     } catch (err: any) {
-      console.error('Error al cerrar sesión:', err);
+      logWithTimestamp('Logout error:', err);
       setError(err.message);
     }
-  };
+  }, [logWithTimestamp]);
   
-  // Obtener token actual
-  const getIdToken = async () => {
+  // Get the current Firebase ID token (for API calls)
+  const getIdToken = useCallback(async () => {
     if (!user) return null;
     try {
-      return await user.getIdToken();
+      logWithTimestamp('Getting fresh Firebase ID token');
+      return await user.getIdToken(true); // forceRefresh = true to always get a fresh token
     } catch (err: any) {
-      console.error('Error al obtener token:', err);
+      logWithTimestamp('Error getting ID token:', err);
       setError(err.message);
       return null;
     }
-  };
+  }, [user, logWithTimestamp]);
 
   return {
     user,
@@ -131,6 +213,7 @@ export function useFirebaseAuth() {
     register,
     logout,
     loginWithGoogle,
-    getIdToken
+    getIdToken,
+    // Add additional methods as needed
   };
 }
