@@ -50,16 +50,12 @@ export default function LoginPage() {
         if (firebaseToken) {
           console.log('Firebase token obtained, syncing with backend...');
           
-          // You would replace this with your actual endpoint
-          // This endpoint should validate the Firebase token and issue your JWT tokens
-          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api'}/auth/login`, {
+          // Modificamos esta parte para usar el endpoint correcto
+          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api'}/auth/firebase-login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
-              email: user.email,
-              // Use a placeholder password or consider implementing a different
-              // endpoint for Firebase auth in your backend
-              password: 'firebase-auth-user' 
+              firebaseToken: firebaseToken 
             })
           })
           .then(res => {

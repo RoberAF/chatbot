@@ -121,30 +121,33 @@ export class AuthService {
 
   async firebaseLogin(firebaseToken: string) {
     try {
-      // Aquí necesitarías verificar el token de Firebase
-      // Puedes usar firebase-admin para esto
+      // Verificar el token de Firebase
       const decodedToken = await this.verifyFirebaseToken(firebaseToken);
       const email = decodedToken.email;
-
+  
+      if (!email) {
+        throw new UnauthorizedException('El token de Firebase no contiene un email válido');
+      }
+  
       // Buscar usuario por email o crearlo si no existe
       let user = await this.findUserByEmail(email);
-
+  
       if (!user) {
         // Crear usuario automáticamente
         user = await this.prisma.user.create({
           data: {
             email,
             password: await bcrypt.hash(randomBytes(16).toString('hex'), 10),
-            emailConfirmed: true, // Consideramos que los emails de Google ya están verificados
+            emailConfirmed: true, // Los emails de Google ya están verificados
           },
         });
         this.logger.log(`firebaseLogin: usuario creado automáticamente id=${user.id}`);
       }
-
+  
       // Generar tokens
       const accessToken = this.jwtService.sign({ sub: user.id });
       const refreshToken = await this.issueRefreshToken(user.id);
-
+  
       return { accessToken, refreshToken };
     } catch (error) {
       this.logger.error(`firebaseLogin error: ${error.message}`, error.stack);
