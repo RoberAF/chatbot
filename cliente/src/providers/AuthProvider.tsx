@@ -2,6 +2,11 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { 
+  onAuthStateChanged, 
+  signOut
+} from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 import { useFirebaseAuth } from '@/hooks/useFirebaseAuth';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -25,6 +30,7 @@ type AuthContextType = {
   loginWithGoogle: () => Promise<any>;
   register: (email: string, password: string, name?: string, age?: number) => Promise<any>;
   logout: () => Promise<void>;
+  forceLogout: () => void;
   
   // API request method
   authFetch: (input: RequestInfo, init?: RequestInit) => Promise<Response>;
@@ -136,21 +142,70 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Unified logout from both systems
   const logout = async () => {
     try {
-      // Logout from both systems
-      await Promise.all([
-        firebaseLogout(),
-        jwtLogout()
-      ]);
+      console.log("Iniciando proceso de cierre de sesión completo");
       
-      // Clear any saved redirects
-      localStorage.removeItem('auth_redirect_to');
+      // 1. Establecer flag de cierre de sesión
+      localStorage.setItem('intentional_logout', 'true');
       
-      // Navigate to login page
-      router.push('/login');
+      // 2. Forzar cierre de sesión en el backend primero
+      if (accessToken) {
+        try {
+          await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api'}/auth/logout`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${accessToken}`
+            },
+          });
+          console.log("Backend notificado del cierre de sesión");
+        } catch (e) {
+          console.error("Error al notificar al backend:", e);
+        }
+      }
+      
+      // 3. Limpiar TODOS los tokens y estado local
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      // 4. Llamar a jwtLogout para limpiar estado interno del hook useAuth
+      await jwtLogout();
+      
+      // 5. Cerrar sesión en Firebase
+      try {
+        // Desactivar listener temporalmente
+        const unsubscribeTemp = onAuthStateChanged(auth, () => {});
+        unsubscribeTemp();
+        
+        await signOut(auth);
+        console.log("Firebase signOut completado");
+      } catch (fbError) {
+        console.error("Error al cerrar sesión en Firebase:", fbError);
+      }
+      
+      // 6. Espera breve para que todo se procese
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // 7. Redirección usando window.location para forzar recarga completa
+      console.log("Redirigiendo a la página de login...");
+      window.location.href = '/login';
     } catch (err) {
-      console.error('Logout error:', err);
-      setError('Error al cerrar sesión');
+      console.error('Error global en cierre de sesión:', err);
+      
+      // 8. Aún en caso de error, forzar la redirección
+      window.location.href = '/login';
     }
+  };
+
+  // Función de emergencia para forzar cierre de sesión total
+  const forceLogout = () => {
+    console.log("Ejecutando cierre de sesión de emergencia");
+    localStorage.clear();
+    sessionStorage.clear();
+    document.cookie.split(";").forEach(c => {
+      document.cookie = c.replace(/^ +/, "")
+        .replace(/=.*/, `=;expires=${new Date().toUTCString()};path=/`);
+    });
+    window.location.href = '/login';
   };
 
   // Unified Google login
@@ -180,6 +235,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loginWithGoogle,
     register,
     logout,
+    forceLogout,
     authFetch
   };
 

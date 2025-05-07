@@ -1,8 +1,9 @@
-// src/lib/firebase.ts
-import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+// src/lib/firebase.ts - Modifica la configuración de persistencia
 
-// Tu configuración de Firebase que te proporcionaron
+import { initializeApp } from "firebase/app";
+import { getAuth, setPersistence, browserSessionPersistence } from "firebase/auth";
+
+// Configuración de Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyCmmYONfq1vYS5raV1bvlHFaIEEFjHRXqY",
   authDomain: "chat-3c167.firebaseapp.com",
@@ -16,6 +17,16 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+
+// Configurar persistencia a nivel de sesión en lugar de 'local'
+// Esto hará que Firebase no mantenga la sesión entre recargas de página
+setPersistence(auth, browserSessionPersistence)
+  .then(() => {
+    console.log('Firebase configurado con persistencia de sesión');
+  })
+  .catch((error) => {
+    console.error('Error configurando persistencia:', error);
+  });
 
 export { auth };
 export default app;

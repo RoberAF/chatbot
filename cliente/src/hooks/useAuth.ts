@@ -259,7 +259,7 @@ export function useAuth() {
     logDebug('Starting logout process');
     try {
       if (accessToken) {
-        // Try to notify the server about logout
+        // Notificar al servidor sobre el logout
         try {
           const res = await fetch(`${API}/auth/logout`, {
             method: 'POST',
@@ -270,22 +270,24 @@ export function useAuth() {
           });
           logDebug('Server logout response:', res.ok ? 'Success' : 'Failed');
         } catch (e) {
-          // Non-critical error, continue with local logout
           logDebug('Server logout request failed:', e);
         }
       }
-    } finally {
-      // Always clear local storage, even if server request fails
+      
+      // Limpiar tokens locales
       logDebug('Clearing local tokens');
       localStorage.removeItem(ACCESS_TOKEN_KEY);
       localStorage.removeItem(REFRESH_TOKEN_KEY);
       localStorage.removeItem('firebaseToken');
+      localStorage.setItem('intentional_logout', 'true');
       setAccessToken(null);
       
-      // Redirect to login page
-      router.push('/login');
+      return true;
+    } catch (err) {
+      logDebug('Error during logout:', err);
+      return false;
     }
-  }, [accessToken, API, logDebug, router]);
+  }, [accessToken, API, logDebug]);
 
   // Enhanced authFetch with automatic token refresh and better error handling
   const authFetch = useCallback(

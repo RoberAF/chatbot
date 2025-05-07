@@ -32,6 +32,16 @@ export class AuthService {
    * Emite y guarda un refresh token 
    */
   private async issueRefreshToken(userId: number): Promise<string> {
+    // Verificar si el usuario existe y no acaba de hacer logout
+    const user = await this.prisma.user.findUnique({ 
+      where: { id: userId }
+    });
+    
+    if (!user || user.activePersonalityId === null) {
+      this.logger.warn(`issueRefreshToken: intento rechazado para userId=${userId}`);
+      throw new Error('No se puede emitir token para un usuario sin sesión activa');
+    }
+  
     const rawToken = uuidv4();
     const hashed = await bcrypt.hash(rawToken, 10);
     await this.prisma.refreshToken.create({
@@ -206,9 +216,28 @@ export class AuthService {
    */
   async logout(userId: number) {
     this.logger.debug(`logout() userId=${userId}`);
-    await this.prisma.refreshToken.deleteMany({ where: { userId } });
-    this.logger.log(`logout: tokens revocados userId=${userId}`);
-    return { success: true };
+    
+    try {
+      // 1. Eliminar todos los refresh tokens
+      await this.prisma.refreshToken.deleteMany({ where: { userId } });
+      
+      // 2. Añadir flag de usuario deslogueado para prevenir renovación automática
+      // Esto es crucial para evitar la auto-regeneración de tokens
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { 
+          // Opcionalmente puedes añadir un campo en tu esquema como 'loggedOut: true'
+          // como alternativa, podemos usar un campo existente:
+          activePersonalityId: null 
+        }
+      });
+      
+      this.logger.log(`logout: tokens revocados userId=${userId}`);
+      return { success: true };
+    } catch (error) {
+      this.logger.error(`Error en logout para usuario ${userId}:`, error.stack);
+      throw new Error('Error al cerrar sesión');
+    }
   }
 
   /**

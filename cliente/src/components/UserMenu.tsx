@@ -7,10 +7,10 @@ import { useAuth } from '@/hooks/useAuth';
 export function UserMenu() {
   const router = useRouter();
   const { accessToken, logout } = useAuth();
-  
+
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  
+
   // Efecto para cerrar el menú al hacer clic fuera de él
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -18,7 +18,7 @@ export function UserMenu() {
         setIsOpen(false);
       }
     }
-    
+
     document.addEventListener('mousedown', handleClickOutside);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
@@ -78,7 +78,7 @@ export function UserMenu() {
               </svg>
               Mi perfil
             </button>
-            
+
             {/* Ajustes */}
             <button
               onClick={() => {
@@ -93,7 +93,7 @@ export function UserMenu() {
               </svg>
               Ajustes
             </button>
-            
+
             {/* Suscripción */}
             <button
               onClick={() => {
@@ -107,14 +107,35 @@ export function UserMenu() {
               </svg>
               Suscripción
             </button>
-            
+
             <hr className="my-1 border-slate-200 dark:border-slate-700" />
-            
+
             {/* Cerrar sesión */}
             <button
-              onClick={() => {
+              onClick={async () => {
                 setIsOpen(false);
-                logout();
+
+                // 1. Limpiar todo el localStorage primero
+                localStorage.clear();
+
+                // 2. Establecer bandera de logout
+                localStorage.setItem('intentional_logout', 'true');
+
+                try {
+                  // 3. Intentar cerrar sesión de forma ordenada
+                  await logout();
+                } catch (error) {
+                  console.error("Error durante cierre de sesión:", error);
+                } finally {
+                  // 4. Forzar salida independientemente del resultado anterior
+                  console.log("Forzando cierre de sesión completo...");
+
+                  // 5. Limpiar localStorage otra vez por seguridad
+                  localStorage.clear();
+
+                  // 6. Usar window.location para forzar recarga completa
+                  window.location.href = '/login';
+                }
               }}
               className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center"
             >
