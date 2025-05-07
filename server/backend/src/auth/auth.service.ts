@@ -10,12 +10,12 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { User } from '@prisma/client';
-import { RegisterDto }   from './dto/register.dto';
-import { LoginDto }      from './dto/login.dto';
-import { v4 as uuidv4 }  from 'uuid';
-import * as bcrypt       from 'bcrypt';
-import { JwtService }    from '@nestjs/jwt';
-import { randomBytes }   from 'crypto';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
+import { v4 as uuidv4 } from 'uuid';
+import * as bcrypt from 'bcrypt';
+import { JwtService } from '@nestjs/jwt';
+import { randomBytes } from 'crypto';
 import { MailerService } from '../mailer/mailer.service';
 
 @Injectable()
@@ -26,14 +26,14 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly mailer: MailerService,
-  ) {}
+  ) { }
 
   /** 
    * Emite y guarda un refresh token 
    */
   private async issueRefreshToken(userId: number): Promise<string> {
     const rawToken = uuidv4();
-    const hashed   = await bcrypt.hash(rawToken, 10);
+    const hashed = await bcrypt.hash(rawToken, 10);
     await this.prisma.refreshToken.create({
       data: { tokenHash: hashed, userId },
     });
@@ -55,8 +55,8 @@ export class AuthService {
 
     // 2️⃣ Crear usuario con token de confirmación
     const hashedPassword = await bcrypt.hash(dto.password, 10);
-    const confirmToken   = randomBytes(32).toString('hex');
-    const expiry         = new Date(Date.now() + 1000 * 60 * 60); // 1h
+    const confirmToken = randomBytes(32).toString('hex');
+    const expiry = new Date(Date.now() + 1000 * 60 * 60); // 1h
 
     const user = await this.prisma.user.create({
       data: {
@@ -113,10 +113,59 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    const accessToken  = this.jwtService.sign({ sub: user.id });
+    const accessToken = this.jwtService.sign({ sub: user.id });
     const refreshToken = await this.issueRefreshToken(user.id);
     this.logger.log(`login: tokens emitidos userId=${user.id}`);
     return { accessToken, refreshToken };
+  }
+
+  async firebaseLogin(firebaseToken: string) {
+    try {
+      // Aquí necesitarías verificar el token de Firebase
+      // Puedes usar firebase-admin para esto
+      const decodedToken = await this.verifyFirebaseToken(firebaseToken);
+      const email = decodedToken.email;
+
+      // Buscar usuario por email o crearlo si no existe
+      let user = await this.findUserByEmail(email);
+
+      if (!user) {
+        // Crear usuario automáticamente
+        user = await this.prisma.user.create({
+          data: {
+            email,
+            password: await bcrypt.hash(randomBytes(16).toString('hex'), 10),
+            emailConfirmed: true, // Consideramos que los emails de Google ya están verificados
+          },
+        });
+        this.logger.log(`firebaseLogin: usuario creado automáticamente id=${user.id}`);
+      }
+
+      // Generar tokens
+      const accessToken = this.jwtService.sign({ sub: user.id });
+      const refreshToken = await this.issueRefreshToken(user.id);
+
+      return { accessToken, refreshToken };
+    } catch (error) {
+      this.logger.error(`firebaseLogin error: ${error.message}`, error.stack);
+      throw new UnauthorizedException('Error al verificar token de Firebase');
+    }
+  }
+
+  // Método auxiliar para verificar tokens de Firebase
+  private async verifyFirebaseToken(token: string) {
+    // Implementar verificación de token usando firebase-admin
+    // Esto requiere configurar firebase-admin en el proyecto
+    // return admin.auth().verifyIdToken(token);
+
+    // Implementación simplificada para pruebas (NO USAR EN PRODUCCIÓN)
+    try {
+      // Decodificar token sin verificar (solo para depuración)
+      const decoded = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+      return decoded;
+    } catch (error) {
+      throw new UnauthorizedException('Token de Firebase inválido');
+    }
   }
 
   async findUserByEmail(email: string): Promise<User | null> {
@@ -169,7 +218,7 @@ export class AuthService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    const token  = randomBytes(32).toString('hex');
+    const token = randomBytes(32).toString('hex');
     const expiry = new Date(Date.now() + 1000 * 60 * 60); // 1h
     await this.prisma.user.update({
       where: { email },

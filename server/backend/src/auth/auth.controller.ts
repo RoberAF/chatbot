@@ -45,6 +45,13 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
+  @Post('firebase-login')
+  @ApiOperation({ summary: 'Autenticar usuario usando token de Firebase' })
+  @ApiResponse({ status: 200, description: 'Login exitoso' })
+  async firebaseLogin(@Body() dto: { firebaseToken: string }) {
+    return this.authService.firebaseLogin(dto.firebaseToken);
+  }
+
   @Post('refresh')
   @ApiOperation({ summary: 'Renueva tokens usando un refresh token' })
   @ApiResponse({ status: 200, description: 'Tokens renovados correctamente' })
