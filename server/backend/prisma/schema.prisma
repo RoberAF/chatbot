@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Usuarios de la aplicación
+model User {
+  id                 Int       @id @default(autoincrement())
+  email              String    @unique
+  password           String
+  name               String?
+  age                Int?
+  resetToken         String?
+  resetTokenExpiry   DateTime?
+  createdAt          DateTime  @default(now())
+  emailConfirmed     Boolean   @default(false)
+  confirmToken       String?
+  confirmTokenExpiry DateTime?
+
+  personalities       Personality[]  @relation("UserPersonalities")
+  activePersonalityId String?        @unique
+  activePersonality   Personality?   @relation(name: "UserActive", fields: [activePersonalityId], references: [id], onDelete: SetNull)
+  subscription        Subscription?
+  refreshTokens       RefreshToken[]
+}
+
+/// Personalidad única generada para un usuario
+model Personality {
+  id        String   @id @default(cuid())
+  userId    Int
+  traits    Json
+  createdAt DateTime @default(now())
+
+  /// Dueño de esta personalidad (N:1)
+  user User @relation(name: "UserPersonalities", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Relación inversa one-to-one de la personalidad activa
+  activeForUser User? @relation("UserActive")
+
+  /// Mensajes asociados a esta personalidad
+  messages Message[]
+}
+
+/// Mensajes de chat guardados en la base
+model Message {
+  id            Int      @id @default(autoincrement())
+  personalityId String
+  sender        Sender
+  content       String
+  createdAt     DateTime @default(now())
+
+  personality Personality @relation(fields: [personalityId], references: [id], onDelete: Cascade)
+}
+
+/// Tokens para refrescar la sesión (refresh tokens)
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  tokenHash String
+  userId    Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Registro de suscripción en Stripe
+model Subscription {
+  id            Int       @id @default(autoincrement())
+  userId        Int       @unique
+  tier          Tier      @default(FREE)
+  expiresAt     DateTime?
+  stripeId      String?
+  isTrialActive Boolean   @default(false)
+  trialStartDate DateTime?
+  trialEndDate   DateTime?
+  hasUsedTrial      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([trialEndDate])
+  @@index([isTrialActive])
+}
+enum Tier {
+  FREE
+  PRO
+  PRO_PLUS
+}
+
+enum Sender {
+  user
+  bot
+}
