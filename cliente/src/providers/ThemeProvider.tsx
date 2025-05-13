@@ -1,4 +1,3 @@
-// cliente/src/providers/ThemeProvider.tsx
 'use client';
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
@@ -18,16 +17,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('light');
   const [mounted, setMounted] = useState(false);
 
-  // Aplicar el tema al documento
   const applyTheme = (theme: Theme) => {
     const root = window.document.documentElement;
     const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     const resolvedTheme = theme === 'system' ? systemTheme : theme;
     
-    // Limpiar clases anteriores
     root.classList.remove('light', 'dark');
     
-    // Aplicar la nueva clase
     if (resolvedTheme === 'dark') {
       root.classList.add('dark');
     }
@@ -35,7 +31,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setResolvedTheme(resolvedTheme);
   };
 
-  // Cargar tema desde localStorage al montar
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') as Theme | null;
     if (savedTheme) {
@@ -46,7 +41,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
     setMounted(true);
 
-    // Escuchar cambios en el tema del sistema
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = () => {
       if (theme === 'system') {
@@ -58,7 +52,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
 
-  // Actualizar tema cuando cambia
   useEffect(() => {
     if (!mounted) return;
     
@@ -72,7 +65,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     resolvedTheme
   };
 
-  // Evitar flash de tema incorrecto
   if (!mounted) {
     return null;
   }

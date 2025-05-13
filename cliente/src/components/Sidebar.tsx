@@ -93,7 +93,7 @@ function SidebarContent() {
     <aside className="flex h-screen">
       <div className="flex h-screen w-64 flex-col overflow-y-auto overflow-x-hidden bg-slate-50 pt-8 dark:bg-slate-900 px-2 custom-scrollbar">
         <h2 className="px-3 text-lg font-medium text-slate-800 dark:text-slate-200 mb-4">
-          Mis Alter Egos
+          Chats
         </h2>
 
         <button
@@ -129,13 +129,13 @@ function SidebarContent() {
           
           {isLoadingPersonalities && (
             <p className="text-sm text-slate-500 dark:text-slate-400 px-3">
-              Cargando personalidades...
+              Cargando chats...
             </p>
           )}
           
           {!isLoadingPersonalities && !error && personalities.length === 0 && (
             <p className="text-sm text-slate-500 dark:text-slate-400 px-3">
-              No tienes alter egos aún.
+              No tienes chats.
             </p>
           )}
           

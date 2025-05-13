@@ -4,12 +4,38 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 
+interface UserData {
+  id: number;
+  email: string;
+  name: string | null;
+}
+
 export function UserMenu() {
   const router = useRouter();
-  const { accessToken, logout } = useAuth();
+  const { accessToken, logout, authFetch } = useAuth();
 
   const [isOpen, setIsOpen] = useState(false);
+  const [userData, setUserData] = useState<UserData | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Cargar datos del usuario al montar el componente
+  useEffect(() => {
+    if (!accessToken) return;
+
+    const loadUserData = async () => {
+      try {
+        const res = await authFetch('/users/me');
+        if (res.ok) {
+          const data = await res.json();
+          setUserData(data);
+        }
+      } catch (error) {
+        console.error('Error al cargar datos del usuario:', error);
+      }
+    };
+
+    loadUserData();
+  }, [accessToken, authFetch]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -44,7 +70,10 @@ export function UserMenu() {
         aria-haspopup="true"
       >
         <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-medium">
-          U
+          {userData?.name 
+            ? userData.name.charAt(0).toUpperCase() 
+            : userData?.email?.charAt(0).toUpperCase() || 'U'
+          }
         </div>
         <svg
           xmlns="http://www.w3.org/2000/svg"
