@@ -18,7 +18,12 @@ interface UserProfile {
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { accessToken, loading: authLoading, authFetch, logout } = useAuth();
+  const { 
+    accessToken,
+    loading: authLoading, 
+    authFetch, 
+    logout 
+  } = useAuth();
   
   const [name, setName] = useState('');
   const [age, setAge] = useState<number | ''>('');
@@ -81,23 +86,37 @@ export default function ProfilePage() {
     setUpdateSuccess(false);
     
     try {
+      const updateData = {
+        name,
+        age: age === '' ? null : Number(age)
+      };
+      
+      console.log('Enviando actualización:', updateData);
+      
       const res = await authFetch('/users/me', {
         method: 'PATCH',
-        body: JSON.stringify({
-          name,
-          age: age === '' ? null : Number(age)
-        })
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updateData)
       });
       
       if (!res.ok) {
-        throw new Error('Error al actualizar el perfil');
+        const errorData = await res.json().catch(() => ({}));
+        console.error('Error de respuesta:', errorData);
+        throw new Error(errorData.message || 'Error al actualizar el perfil');
       }
       
       const updatedUser = await res.json();
+      console.log('Usuario actualizado:', updatedUser);
+      
       setProfile({
         ...profile,
         ...updatedUser
       });
+      
+      // Emitir evento personalizado para actualizar otros componentes
+      window.dispatchEvent(new Event('user-profile-updated'));
       
       setUpdateSuccess(true);
       setEditMode(false);
@@ -204,6 +223,22 @@ export default function ProfilePage() {
                   />
                 </div>
                 
+                <div>
+                  <label htmlFor="age" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Edad
+                  </label>
+                  <input
+                    id="age"
+                    type="number"
+                    value={age}
+                    onChange={(e) => setAge(e.target.value === '' ? '' : parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+                    placeholder="Tu edad"
+                    min="1"
+                    max="120"
+                  />
+                </div>
+                
                 <div className="flex space-x-4">
                   <button
                     type="button"
@@ -241,6 +276,11 @@ export default function ProfilePage() {
                     <div className="flex justify-between py-3">
                       <dt className="text-sm font-medium text-slate-900 dark:text-slate-200">Nombre</dt>
                       <dd className="text-sm text-slate-700 dark:text-slate-300">{profile?.name || '—'}</dd>
+                    </div>
+                    
+                    <div className="flex justify-between py-3">
+                      <dt className="text-sm font-medium text-slate-900 dark:text-slate-200">Edad</dt>
+                      <dd className="text-sm text-slate-700 dark:text-slate-300">{profile?.age || '—'}</dd>
                     </div>
                     
                     <div className="flex justify-between py-3">

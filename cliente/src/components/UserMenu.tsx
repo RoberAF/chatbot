@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 
 interface UserData {
@@ -12,30 +12,56 @@ interface UserData {
 
 export function UserMenu() {
   const router = useRouter();
+  const pathname = usePathname();
   const { accessToken, logout, authFetch } = useAuth();
 
   const [isOpen, setIsOpen] = useState(false);
   const [userData, setUserData] = useState<UserData | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const prevPathname = useRef(pathname);
+
+  // Función para cargar datos del usuario
+  const loadUserData = async () => {
+    if (!accessToken) return;
+    
+    try {
+      const res = await authFetch('/users/me');
+      if (res.ok) {
+        const data = await res.json();
+        setUserData(data);
+      }
+    } catch (error) {
+      console.error('Error al cargar datos del usuario:', error);
+    }
+  };
 
   // Cargar datos del usuario al montar el componente
   useEffect(() => {
-    if (!accessToken) return;
+    loadUserData();
+  }, [accessToken]);
 
-    const loadUserData = async () => {
-      try {
-        const res = await authFetch('/users/me');
-        if (res.ok) {
-          const data = await res.json();
-          setUserData(data);
-        }
-      } catch (error) {
-        console.error('Error al cargar datos del usuario:', error);
-      }
+  // Recargar datos cuando se navega desde la página de perfil
+  useEffect(() => {
+    // Si venimos de la página de perfil, recargar los datos
+    if (prevPathname.current === '/profile' && pathname !== '/profile') {
+      loadUserData();
+    }
+    prevPathname.current = pathname;
+  }, [pathname]);
+
+  // Escuchar eventos personalizados de actualización de usuario
+  useEffect(() => {
+    const handleUserUpdate = () => {
+      loadUserData();
     };
 
-    loadUserData();
-  }, [accessToken, authFetch]);
+    // Escuchar el evento personalizado
+    window.addEventListener('user-profile-updated', handleUserUpdate);
+
+    return () => {
+      window.removeEventListener('user-profile-updated', handleUserUpdate);
+    };
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
