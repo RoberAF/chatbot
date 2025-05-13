@@ -3,12 +3,13 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { useTheme } from '@/providers/ThemeProvider';
 
 export default function SettingsPage() {
   const router = useRouter();
   const { logout } = useAuth();
-
-  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
+  const { theme, setTheme } = useTheme();
+  
   const [notifications, setNotifications] = useState(true);
   const [emailUpdates, setEmailUpdates] = useState(true);
   const [language, setLanguage] = useState('es');
@@ -29,8 +30,7 @@ export default function SettingsPage() {
     
     const loadSettings = () => {
       try {
-        const storedTheme = localStorage.getItem('theme') as 'light' | 'dark' | 'system' || 'system';
-        setTheme(storedTheme);
+        // El tema ya se carga automáticamente en el ThemeProvider
         
         const storedNotifications = localStorage.getItem('notifications');
         setNotifications(storedNotifications === 'true');
@@ -49,9 +49,6 @@ export default function SettingsPage() {
     };
     
     loadSettings();
-    
-    applyTheme(localStorage.getItem('theme') as 'light' | 'dark' | 'system' || 'system');
-    
   }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -61,12 +58,10 @@ export default function SettingsPage() {
     setSuccess(false);
 
     try {
-      localStorage.setItem('theme', theme);
+      // El tema ya se guarda automáticamente con el ThemeProvider
       localStorage.setItem('notifications', notifications.toString());
       localStorage.setItem('emailUpdates', emailUpdates.toString());
       localStorage.setItem('language', language);
-      
-      applyTheme(theme);
       
       await new Promise(resolve => setTimeout(resolve, 1000));
       
@@ -77,21 +72,6 @@ export default function SettingsPage() {
     } finally {
       setSaving(false);
     }
-  };
-
-  const applyTheme = (selectedTheme: 'light' | 'dark' | 'system') => {
-    if (selectedTheme === 'dark' || 
-        (selectedTheme === 'system' && 
-         window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  };
-
-  const handleThemeChange = (selectedTheme: 'light' | 'dark' | 'system') => {
-    setTheme(selectedTheme);
-    applyTheme(selectedTheme);
   };
 
   if (loading) {
@@ -147,7 +127,7 @@ export default function SettingsPage() {
                   <div className="mt-2 grid grid-cols-3 gap-3">
                     <button
                       type="button"
-                      onClick={() => handleThemeChange('light')}
+                      onClick={() => setTheme('light')}
                       className={`
                         flex items-center justify-center rounded-lg border p-3
                         ${theme === 'light'
@@ -164,7 +144,7 @@ export default function SettingsPage() {
                     
                     <button
                       type="button"
-                      onClick={() => handleThemeChange('dark')}
+                      onClick={() => setTheme('dark')}
                       className={`
                         flex items-center justify-center rounded-lg border p-3
                         ${theme === 'dark'
@@ -181,7 +161,7 @@ export default function SettingsPage() {
                     
                     <button
                       type="button"
-                      onClick={() => handleThemeChange('system')}
+                      onClick={() => setTheme('system')}
                       className={`
                         flex items-center justify-center rounded-lg border p-3
                         ${theme === 'system'
